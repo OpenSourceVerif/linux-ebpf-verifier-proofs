@@ -1,0 +1,171 @@
+From Coq Require Import List ZArith.
+From compcert.lib Require Import Integers.
+Import ListNotations.
+
+Definition u8 := byte.
+Definition s32 := int.
+Definition u32 := int.
+Definition u64 := int64.
+Definition s64 := int64.
+
+Definition u64_of_u8 (v: u8): u64 := Int64.repr (Byte.unsigned v).
+
+Definition s32_of_u64 (v: u64): s32 := Int.repr (Int64.signed v).
+
+Definition s32_of_u8 (v: u8): s32 := Int.repr (Byte.signed v).
+
+Definition s64_of_u8 (v: u8): s64 := Int64.repr (Byte.signed v).
+
+Definition u64_of_s32 (v: s32): u64 := Int64.repr (Int.signed v).
+
+Definition u64_of_u32 (v: u32): u64 := Int64.repr (Int.unsigned v).
+
+Definition tnum: Type := u64 * u64.
+(*
+Record tnum := {
+  tnum_value: int64;
+  tnum_mask:  int64;
+}.
+
+Definition tnum_unknown: tnum := {|
+  tnum_value  := Int64.zero;
+  tnum_mask   := Int64.mone;
+|}.
+*)
+
+Definition tnum_unknown: tnum := (Int64.zero, Int64.mone).
+
+Definition tnum_const (value: u64): tnum := (value, Int64.zero).
+
+Definition tnum_range (min max: u64): tnum :=
+  let chi   := Int64.xor min max in
+  let bits  := u64_of_u8 (Byte.repr (Int64.size chi)) in (**r fls64 is to find last set bit in a 64-bit word *)
+    if Int64.lt (Int64.repr 63) bits then
+      tnum_unknown
+    else
+      let delta := Int64.sub (Int64.shl Int64.one bits) Int64.one in
+        (Int64.and min (Int64.not delta), delta).
+
+(**r shift has u8 type in C *)
+(**r Q: a << b requires b is <= 32 or 64 ? *)
+Definition tnum_lshift (a: tnum) (shift: u8): tnum :=
+  ( Int64.shl (fst a) (u64_of_u8 shift),
+    Int64.shl (snd a) (u64_of_u8 shift)).
+Definition tnum_rshift (a: tnum) (shift: u8): tnum :=
+  ( Int64.shru (fst a) (u64_of_u8 shift),
+    Int64.shru (snd a) (u64_of_u8 shift)).
+
+Definition tnum_arshift (a: tnum) (min_shift insn_bitness: u8): tnum :=
+  if Byte.eq insn_bitness (Byte.repr 32) then
+    ( u64_of_s32 (Int.shr (s32_of_u64 (fst a)) (s32_of_u8 min_shift)),
+      u64_of_s32 (Int.shr (s32_of_u64 (snd a)) (s32_of_u8 min_shift)))
+  else
+    ( Int64.shr (fst a) (s64_of_u8 min_shift),
+      Int64.shr (snd a) (s64_of_u8 min_shift)).
+
+Definition tnum_add (a b: tnum): tnum :=
+  let sm    := Int64.add (snd a) (snd b) in
+  let sv    := Int64.add (fst a) (fst b) in
+  let sigma := Int64.add sm sv in
+  let chi   := Int64.xor sigma sv in
+  let mu    := Int64.or chi (Int64.or (snd a) (snd b)) in
+    (Int64.and sv (Int64.not mu), mu).
+
+Definition tnum_sub (a b: tnum): tnum :=
+  let dv    := Int64.sub (fst a) (fst b) in
+  let alpha := Int64.add dv (snd a) in
+  let beta  := Int64.sub dv (snd b) in
+  let chi   := Int64.xor alpha beta in
+  let mu    := Int64.or chi (Int64.or (snd a) (snd b)) in
+    (Int64.and dv (Int64.not mu), mu).
+
+Definition tnum_and (a b: tnum): tnum :=
+  let alpha := Int64.or (fst a) (snd a) in
+  let beta  := Int64.or (fst b) (snd b) in
+  let v     := Int64.and (fst a) (fst b) in
+    (v, Int64.and alpha (Int64.and beta (Int64.not v))).
+
+Definition tnum_or (a b: tnum): tnum :=
+  let v   := Int64.or (fst a) (fst b) in
+  let mu  := Int64.or (snd a) (snd b) in
+    (v, Int64.and mu (Int64.not v)).
+
+Definition tnum_xor (a b: tnum): tnum :=
+  let v   := Int64.xor (fst a) (fst b) in
+  let mu  := Int64.or (snd a) (snd b) in
+    (Int64.and v (Int64.not mu), mu).
+
+Fixpoint tnum_mul_rec (a b: tnum) (fuel: nat) (acc_m: tnum): tnum :=
+  match fuel with
+  | O => acc_m
+  | S n =>
+    if orb (negb (Int64.eq (fst a) Int64.zero))
+           (negb (Int64.eq (snd a) Int64.zero)) then
+      let acc_m :=
+        if negb (Int64.eq (Int64.and (fst a) Int64.one) Int64.zero) then
+          tnum_add acc_m (Int64.zero, snd b)
+        else if negb (Int64.eq (Int64.and (snd a) Int64.one) Int64.zero) then
+          tnum_add acc_m (Int64.zero, Int64.or (fst b) (snd b))
+        else acc_m  in
+      let a := tnum_rshift a Byte.one in
+      let b := tnum_lshift b Byte.one in
+        tnum_mul_rec a b n acc_m
+    else
+      acc_m
+  end.
+
+Definition tnum_mul (a b: tnum): tnum :=
+  let acc_v := Int64.mul (fst a) (fst b) in
+  let acc_m := (Int64.zero, Int64.zero) in
+  let res := tnum_mul_rec a b 64 acc_m in
+    tnum_add (acc_v, Int64.zero) acc_m.
+
+Definition tnum_intersect (a b: tnum): tnum :=
+  let v   := Int64.xor (fst a) (fst b) in
+  let mu  := Int64.and (snd a) (snd b) in
+    (Int64.and v (Int64.not mu), mu).
+
+Definition tnum_cast (a: tnum) (size: u8): tnum :=
+  let v   := Int64.and (fst a) (Int64.sub (Int64.shl Int64.one (Int64.mul (u64_of_u8 size) (Int64.repr 8))) Int64.one) in
+  let m   := Int64.and (snd a) (Int64.sub (Int64.shl Int64.one (Int64.mul (u64_of_u8 size) (Int64.repr 8))) Int64.one) in
+    (v, m).
+
+Definition tnum_is_const (a: tnum): bool := Int64.eq (snd a) Int64.zero.
+
+Definition tnum_equals_const (a: tnum) (b: u64): bool :=
+  andb (tnum_is_const a) (Int64.eq (fst a) b).
+
+Definition tnum_is_unknown (a: tnum): bool := Int64.eq (Int64.not (snd a)) Int64.zero.
+
+(*
+Definition tnum_is_aligned (a: tnum) (size: u64): bool :=
+  if negb (negb (Int64.eq size Int64.zero)) then
+    true
+  else
+    negb (negb (Int64.eq (Int64.and (Int64.or (fst a) (snd a)) (Int64.sub size Int64.one)) Int64.zero)). *)
+Definition tnum_is_aligned (a: tnum) (size: u64): bool :=
+  if Int64.eq size Int64.zero then
+    true
+  else
+    Int64.eq (Int64.and (Int64.or (fst a) (snd a)) (Int64.sub size Int64.one)) Int64.zero.
+
+Definition tnum_in (a b: tnum): bool :=
+  if negb (Int64.eq (Int64.and (snd b) (Int64.not (snd a))) Int64.zero) then
+    false
+  else
+    let v := Int64.and (fst b) (Int64.not (snd a)) in
+      Int64.eq (fst a) v.
+
+(**r Unused:
+int tnum_sbin(char *str, size_t size, struct tnum a)
+  *)
+
+Definition tnum_subreg (a: tnum): tnum := tnum_cast a (Byte.repr 4).
+
+Definition tnum_clear_subreg (a: tnum): tnum := tnum_lshift (tnum_rshift a (Byte.repr 32)) (Byte.repr 32).
+
+Definition tnum_with_subreg (reg subreg: tnum): tnum := tnum_or (tnum_clear_subreg reg) (tnum_subreg subreg).
+
+Definition tnum_const_subreg (a: tnum) (value: u32): tnum := tnum_with_subreg a (tnum_const (u64_of_u32 value)).
+
+Definition tnum_subreg_is_const (a: tnum): bool := Int64.eq (snd (tnum_subreg a)) Int64.zero.
