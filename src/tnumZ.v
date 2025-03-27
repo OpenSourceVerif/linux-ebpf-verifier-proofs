@@ -9,7 +9,8 @@ Sound, precise, and fast abstract interpretation with tristate numbers. CGO'22
 
 From Coq Require Import ZArith Bool Lia Btauto.
 Open Scope Z_scope.
-Add Search  Blacklist "POrderedType".
+
+(* Add Search  Blacklist "POrderedType". *)
 
 From bpf.src Require Import Zmore.
 

@@ -4,6 +4,20 @@ From bpf.src Require Import tnum.
 
 Import ListNotations.
 
+Definition int64_not_def (x: int64) := Int64.repr (Z.lnot (Int64.unsigned x)).
+
+Lemma int64_not_eq: forall i, Int64.not i = int64_not_def i.
+Proof.
+  intros.
+  apply Int64.same_bits_eq.
+  intros i0 Hrange.
+  unfold int64_not_def, Int64.not.
+  Search (Int64.testbit _ _ = Int64.testbit _ _).
+Qed.  
+
+Definition gamma  (a: tnum) (x: int64) : Prop :=
+   (Int64.and x (Int64.not (snd a))) = (fst a).
+
 Definition mem_tnum (x: int64) (a: tnum): bool :=
   Int64.eq (Int64.and x (Int64.not (snd a))) (fst a).
 
