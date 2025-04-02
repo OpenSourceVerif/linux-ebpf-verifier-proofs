@@ -2220,3 +2220,37 @@ Proof.
        btauto.
 Qed.
 *)
+
+Definition tnum_lshift (a: tnum) (shift: Z): tnum :=
+  ( Z.shiftl (fst a) shift,
+  Z.shiftl (snd a) shift).
+
+Lemma tnum_lshift_sound : forall a i shift,
+    gamma a i ->
+    gamma (tnum_lshift a shift) (Z.shiftl i shift).
+Proof.
+  unfold gamma.
+  intros a i shift Hg.
+  unfold tnum_lshift.
+  simpl.
+  rewrite <- Hg.
+  apply Z.bits_inj.
+  unfold Z.eqf.
+  simpl.  intros n.
+  assert (Hn0: n < 0 \/ n >= 0) by lia.
+  destruct Hn0.
+  - destruct n ; try lia. simpl. reflexivity.
+  - rewrite! Z.land_spec.
+    rewrite! Z.shiftl_spec by lia.
+    rewrite! Z.land_spec.
+    rewrite! Z.lnot_spec by lia.
+    rewrite! Z.shiftl_spec by lia.
+    assert (Hns: n < shift \/ n >= shift) by lia.
+    destruct Hns as [Hns | Hns].
+    + remember (n - shift) as m.
+      assert (Hm: m < 0) by lia.
+      rewrite ! Z.testbit_neg_r by lia.
+      auto.
+    + rewrite! Z.lnot_spec by lia.
+      f_equal.
+Qed.
