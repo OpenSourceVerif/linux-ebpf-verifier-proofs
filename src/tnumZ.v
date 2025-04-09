@@ -145,9 +145,9 @@ Fixpoint add_carry_bit (x y : Z) (c:bool) (n:nat) :=
   | S n' =>
       let pc := add_carry_bit x y c n' in
       let n := Z.of_nat n' in
-                  (orb (andb (Z.testbit x n)
-                          (Z.testbit y  n))
-                     (andb pc (xorb (Z.testbit x n) (Z.testbit y n))))
+                  (orb
+                    (andb (Z.testbit x n) (Z.testbit y  n)) (**r x[n] = y[n] = 1 *)
+                    (andb pc (xorb (Z.testbit x n) (Z.testbit y n)))) (**r x[n] = 1 /\ y[n] = 0 or x[n] = 0 /\ y[n] = 1 *)
   end.
 
 Lemma carry_bit_rew : forall  (x y : Z) (c:bool) (n:nat),
@@ -264,9 +264,10 @@ Fixpoint sub_borrow_bit (x y : Z) (c:bool) (n:nat) :=
   | S n' =>
       let pc := sub_borrow_bit x y c n' in
       let n := Z.of_nat n' in
-                  (orb (andb (negb (Z.testbit x n))
-                          (Z.testbit y  n))
-                     (andb pc (negb (xorb (Z.testbit x n) (Z.testbit y n)))))
+                  (orb
+                    (andb (negb (Z.testbit x n))
+                          (Z.testbit y  n)) (**r x[n] = 0 /\ y[n] = 1*)
+                     (andb pc (negb (xorb (Z.testbit x n) (Z.testbit y n)))))  (**r x[n] = y[n] *)
   end.
 
 Lemma borrow_bit_rew : forall  (x y : Z) (c:bool) (n:nat),
@@ -424,7 +425,7 @@ Definition tnum_sub (a b: tnum): tnum :=
   let beta  := dv - (snd b) in
   let chi   := Z.lxor alpha beta in
   let mu    := Z.lor chi (Z.lor (snd a) (snd b)) in
-    (Z.land dv (Z.lnot mu), mu).
+    (Z.land alpha (Z.lnot mu), mu).
 
 
 
@@ -469,6 +470,7 @@ Lemma tnum_add_eq : forall a b i j,
 Proof.
   intros.
   cbv beta delta [tnum_add tnum_add'].
+   (**r we get the equal because of gamma_add_lor: + is or *)
   rewrite <- gamma_add_lor with (1:= H).
   rewrite <- gamma_add_lor with (1:= H0).
   cbv zeta.
@@ -555,6 +557,7 @@ Proof.
      subst.
      rewrite! Z.land_spec.
      rewrite! Z.lnot_spec by lia.
+     remember (add_carry_bit (Z.land i (Z.lnot ma)) (Z.land j (Z.lnot mb)) false (Z.to_nat n)) as KKK eqn: Hk.
      btauto.
    + rewrite! Ztestbit_add_sound by lia.
      rewrite! Z.lor_spec.
@@ -581,7 +584,7 @@ Definition tnum_sub' (a b: tnum): tnum :=
   let beta  :=  (fst a) - (Z.lor (fst b) (snd b)) in
   let chi   := Z.lxor alpha beta in
   let mu    := Z.lor chi (Z.lor (snd a) (snd b)) in
-    (Z.land dv (Z.lnot mu), mu).
+    (Z.land alpha (Z.lnot mu), mu).
 
 Lemma tnum_sub_eq : forall a b i j,
     gamma a i ->
@@ -593,10 +596,9 @@ Proof.
   rewrite <- gamma_add_lor with (1:= H).
   rewrite <- gamma_add_lor with (1:= H0).
   cbv zeta.
-  f_equal.
-  f_equal. f_equal.
-  f_equal. f_equal. ring. ring.
-  f_equal. f_equal. ring. ring.
+  replace (fst a - fst b + snd a) with (fst a + snd a - fst b) by lia.
+  replace (fst a - fst b - snd b) with (fst a - (fst b + snd b)) by lia.
+  reflexivity.
 Qed.
 
 Lemma lor_land_not : forall x y, Z.lor (Z.land x (Z.lnot y)) y = Z.lor x y.
@@ -741,7 +743,133 @@ Proof.
   reflexivity.
 Qed.
 
+Lemma xorb_false_iff :
+  forall  x y, xorb x y = false <-> x = y.
+Proof.
+  split; intros.
+  - apply xorb_eq; auto.
+  - subst.
+    apply xorb_nilpotent.
+Qed.
 
+Lemma minimum_borrows : forall va ma i vb mb j,
+    gamma (va,ma) i ->
+    gamma (vb,mb) j ->
+    forall n c,
+      sub_borrow_bit (Z.lor va ma) vb c n  = true ->
+      sub_borrow_bit i j c n = true.
+Proof.
+  intros va ma i vb mb j Hgi Hgj n c Hsub.
+  unfold gamma in *. simpl in *.
+  induction n.
+  - simpl in *. congruence.
+  - simpl in *.
+    rewrite! Z.lor_spec in *.
+    rewrite! orb_true_iff in *.
+    rewrite! andb_true_iff in *.
+    rewrite! negb_true_iff in *.
+    rewrite! orb_false_iff in *.
+    destruct Hsub as [Hsub | Hsub].
+    + destruct Hsub as ((Hva & Hma) & Hvb).
+      subst.
+      rewrite! Z.land_spec in *.
+      rewrite! Z.lnot_spec in * by lia.
+      rewrite! andb_true_iff in *.
+      rewrite Hma in Hva.
+      unfold negb in Hva.
+      rewrite! andb_false_iff in *.
+      destruct Hvb as (Hj & Hmb).
+      rewrite Hj.
+      destruct Hva as [Hva | Hva].
+      * rewrite Hva.
+        intuition.
+      * inversion Hva. 
+    + destruct Hsub as (Hsub & Hxor).
+      specialize (IHn Hsub).
+      rewrite IHn.
+      rewrite xorb_false_iff in Hxor.
+      destruct (Z.testbit vb (Z.of_nat n)) eqn: Hvb.
+      * subst.
+        rewrite! Z.land_spec in *.
+        rewrite! Z.lnot_spec in * by lia.
+        rewrite! andb_true_iff in *.
+        destruct Hvb as (Hj & Hmb).
+        rewrite Hj.
+        destruct (Z.testbit i (Z.of_nat n)) eqn: Hi.
+        {
+          intuition idtac.
+        }
+        intuition idtac.
+      * rewrite orb_false_iff in Hxor.
+        destruct Hxor as (Hva & Hma).
+        subst.
+        rewrite! Z.land_spec in *.
+        rewrite! Z.lnot_spec in * by lia.
+        rewrite! andb_false_iff in *.
+        rewrite Hma in Hva.
+        unfold negb in Hva.
+        destruct Hva as [Hi | HF]; [| inversion HF].
+        rewrite Hi.
+        destruct Hvb as [Hj | Hmb].
+        {
+          rewrite Hj. unfold xorb.
+          auto.
+        }
+        rewrite negb_false_iff in Hmb.
+        destruct (Z.testbit j (Z.of_nat n)) eqn: Hj.
+        { auto. }
+        unfold xorb.
+        auto.
+Qed.
+
+Lemma maximum_borrows : forall va ma  i vb mb j,
+    gamma (va,ma) i ->
+    gamma (vb,mb) j ->
+    forall n,
+      sub_borrow_bit i j false n = true ->
+      sub_borrow_bit va (Z.lor vb mb) false n = true.
+Proof.
+  intros va ma  i vb mb j Hgi Hgj n Hsub.
+  unfold gamma in *; simpl in *.
+  induction n.
+  - simpl in *.
+    auto.
+  - simpl in *.
+    rewrite! Z.lor_spec in *.
+    rewrite! orb_true_iff in *.
+    rewrite! andb_true_iff in *.
+    rewrite! negb_true_iff in *.
+    destruct Hsub as [Hsub | Hsub].
+    + destruct Hsub as (Hi & Hj).
+      subst.
+      rewrite! Z.land_spec in *.
+      rewrite! Z.lnot_spec in * by lia.
+      rewrite Hi, Hj.
+      rewrite andb_false_l.
+      rewrite andb_true_l.
+      left.
+      destruct (Z.testbit mb (Z.of_nat n)) eqn: Hmb; auto.
+    + destruct Hsub as (Hsub & Hxor).
+      specialize (IHn Hsub).
+      rewrite IHn.
+      rewrite xorb_false_iff in Hxor.
+      subst.
+      rewrite! Z.land_spec in *.
+      rewrite! Z.lnot_spec in * by lia.
+      rewrite Hxor.
+      destruct (Z.testbit mb (Z.of_nat n)) eqn: Hmb.
+      * rewrite orb_true_r.
+        destruct (Z.testbit j (Z.of_nat n)) eqn: Hj.
+        { rewrite andb_true_l.
+          destruct (Z.testbit ma (Z.of_nat n)) eqn: Hma; auto.
+        }
+        destruct (Z.testbit ma (Z.of_nat n)) eqn: Hma; auto.
+      * destruct (Z.testbit j (Z.of_nat n)) eqn: Hj.
+        {
+          destruct (Z.testbit ma (Z.of_nat n)) eqn: Hma; auto.
+        }
+        destruct (Z.testbit ma (Z.of_nat n)) eqn: Hma; auto.
+Qed.  
 
 (*
 Lemma minimum_borrows : forall va ma  i vb mb j,
@@ -1014,7 +1142,7 @@ Proof.
   apply tnum_not_sound; auto.
 Qed.
 
-(*
+
 Lemma b2z_range : forall b, 0 <= Z.b2z b <= 1.
 Proof.
   destruct b; simpl;lia.
@@ -1124,7 +1252,7 @@ Ltac btauto_ext :=
          rewrite <- arrow_implb
      end) ;
   repeat rewrite eqb_implb;
-  repeat rewrite implb_andb_orb; itauto.
+  repeat rewrite implb_andb_orb; btauto.
 
 
 Lemma minimal_borrows : forall n va ma vb mb i j,
@@ -1147,7 +1275,7 @@ Proof.
     rewrite! implb_andb_orb.
     unfold gamma in *. simpl in *.
     subst. bits;try lia.
-    itauto idtac.
+    btauto.
     + simpl.
     revert H1.
     apply arrow_implb.
@@ -1155,7 +1283,7 @@ Proof.
     rewrite! implb_andb_orb.
     unfold gamma in *. simpl in *.
     subst. bits;try lia.
-    itauto idtac.
+    btauto.
 Qed.
 
 
@@ -1182,7 +1310,7 @@ Proof.
     rewrite! implb_andb_orb.
     unfold gamma in *. simpl in *.
     subst. bits;try lia.
-    itauto idtac.
+    btauto.
     + simpl.
     revert H1.
     apply arrow_implb.
@@ -1190,7 +1318,7 @@ Proof.
     rewrite! implb_andb_orb.
     unfold gamma in *. simpl in *.
     subst. bits;try lia.
-    itauto idtac.
+    btauto.
 Qed.
 
 
@@ -1378,9 +1506,10 @@ Proof.
   induction n.
   - simpl. reflexivity.
   - simpl. intros.  rewrite IHn.
-    bits. itauto idtac.
+    bits. btauto.
 Qed.
 
+(*
 Ltac xorb_def :=
   match goal with
   | |- context [xorb ?A ?B] =>
@@ -1392,7 +1521,7 @@ Ltac xorb_def :=
       remember B as b eqn:eb;
       rewrite (xorb_def a b);
       revert ea; revert eb
-  end.
+  end. *)
 
 Goal forall x y,
     (if Z.odd x then false else Z.odd y) =
@@ -1421,8 +1550,6 @@ Definition tnum_sub_ext (a b: tnum) (z1:Z) (z2:Z) (z3:Z): tnum :=
   let chi   := Z.lxor alpha beta in
   let mu    := Z.lor chi (Z.lor (snd a) (snd b)) in
     (Z.land dv (Z.lnot mu), mu).
-
-Require Import Btauto.
 
 Ltac bsimpl :=
   match goal with
@@ -1494,6 +1621,20 @@ Ltac evalt :=
       end
   end.
 
+Lemma gamma_testbit_mask_false:
+  forall va ma i n0
+  (Hg: gamma (va, ma) i)
+  (Hor_ma : Z.testbit ma (Z.of_nat n0) = false),
+  (Z.testbit va (Z.of_nat n0) = Z.testbit i (Z.of_nat n0)).
+Proof.
+  intros.
+  unfold gamma in *; simpl in *; subst.
+  rewrite ! Z.land_spec.
+  rewrite ! Z.lnot_spec by lia.
+  rewrite Hor_ma.
+  btauto.
+Qed.
+
 Lemma tnum_sub_sound : forall a b i j
   ,
     gamma a i ->
@@ -1502,700 +1643,27 @@ Lemma tnum_sub_sound : forall a b i j
 Proof.
   destruct a as (va,ma).
   destruct b as (vb,mb).
-  intros.
+  intros i j Hgi Hgj.
+  rewrite tnum_sub_eq with (i:=i) (j:=j) by assumption.
   unfold gamma.
-  unfold tnum_sub_ext.
-  simpl.
   apply Z.bits_inj.
   unfold Z.eqf.
-  simpl.  intros.
+  simpl.  intros n.
+  rewrite! Z.land_spec.
+  replace (va - vb + ma) with ((va + ma) - vb) by lia.
+  replace (va - vb - mb) with (va - (vb + mb)) by lia.
   assert (N : n < 0 \/ n >= 0) by lia.
-  destruct N.
+  destruct N eqn: HN.
   - destruct n; try lia; simpl.
     reflexivity.
-  - replace n with (Z.of_nat (Z.to_nat n)) by lia.
-    clear H1.
-    generalize (Z.to_nat n).
-    intro.
-    assert ( gamma (va,ma) i ->
-             gamma (vb,mb) j ->
-             pgoal i j va vb ma mb 0 0 0  n0 /\
-               pgoal i j va vb ma mb 0 (-1) 0  n0 /\
-               pgoal i j va vb ma mb 0 0 (-1) n0  /\
-               pgoal i j va vb ma mb 0 (-1) (-1) n0 /\
-               pgoal i j va vb ma mb 0 0 (-2) n0
-           ).
-    { unfold pgoal.
-      clear n.
-      clear H H0.
-      revert va ma vb mb i j.
-      induction n0.
-      - intros.
-        unfold gamma in *. simpl in H,H0.  subst.
-        rewrite! Z.add_0_r.
-        bits; try lia.
-        repeat split.
-        change (Z.of_nat 0) with 0.
-        bits.
-        btauto.
-        +
-        change (Z.of_nat 0) with 0.
-        bits.
-        btauto.
-        +
-        change (Z.of_nat 0) with 0.
-        bits.
-        btauto.
-        +
-        change (Z.of_nat 0) with 0.
-        bits.
-        btauto.
-        +         change (Z.of_nat 0) with 0.
-        bits.
-        btauto.
-      - intros.
-        replace (Z.of_nat (S n0)) with (Z.succ (Z.of_nat n0)) by lia.
-        rewrite <- !Z.div2_bits; try lia.
-        rewrite! Z.add_0_r.
-        rewrite! Zland_div2.
-        rewrite! sub_div2.
-        rewrite! Zlnot_div2.
-        rewrite! Zlor_div2.
-        rewrite! Zlxor_div2.
-        rewrite! sub_div2.
-        rewrite Z.odd_sub.
-        rewrite! add_shift.
-        rewrite! sub_div2.
-        rewrite! Z.odd_sub.
-        assert (C1 : Z.odd va && Z.odd ma = false).
-        {
-          unfold gamma in *; simpl in *;
-            subst ; bits.
-          btauto.
-        }
-        assert (C2 : Z.odd vb && Z.odd mb = false).
-        {
-          unfold gamma in *; simpl in *;
-            subst ; bits.
-          btauto.
-        }
-        specialize (IHn0 _ _ _ _ (i/2) (j/2) (gamma_div2 _ _ _ H) (gamma_div2 _ _ _ H0)).
-        destruct (Z.odd i) eqn:I; (rewrite? I);
-          destruct (Z.odd j) eqn:J; (rewrite? J);
-          destruct (Z.odd va) eqn:VA; (rewrite? VA);
-          destruct (Z.odd vb) eqn:VB; rewrite? VB;
-          destruct (Z.odd ma) eqn:MA; rewrite? MA;
-          destruct (Z.odd mb) eqn:MB; rewrite? MB; try discriminate.
-        + bits; try lia.
-          evalt.
-          Ltac evalt t := let t' := eval simpl in t in
-                            change t with t'.
-          evalt (Z.b2z (negb true && true)).
-          evalt (Z.b2z (xorb true true && false)).
-          evalt (Z.b2z (negb (xorb true true) && false)).
-          rewrite! Z.add_0_r in *.
-          rewrite! Z.sub_0_r in *.
-          rewrite! Z.land_spec in IHn0.
-          rewrite! Z.lnot_spec in IHn0.
-          rewrite! Z.lor_spec in IHn0.
-          rewrite! Z.lxor_spec in IHn0.
-          change (-1/2) with (-1).
-          rewrite VA. rewrite VB.
-          rewrite MA.
-          evalt (Z.b2z (xorb (xorb true true) false && Z.odd (-1))).
-          replace ((va / 2 - vb / 2 + ma / 2 + -1 + 0))
-                    with ((va / 2 - vb / 2 + ma / 2 + -1)) by ring.
-          repeat split; try tauto.
-          lia.
-          lia. lia. lia. lia.
-        + bits; try lia.
-          evalt (Z.b2z (negb true && true)).
-          evalt (Z.b2z (xorb true true && false)).
-          evalt (Z.b2z (negb (xorb true true) && false)).
-          rewrite! Z.add_0_r in *.
-          rewrite! Z.sub_0_r in *.
-          rewrite! Z.land_spec in IHn0.
-          rewrite! Z.lnot_spec in IHn0.
-          rewrite! Z.lor_spec in IHn0.
-          rewrite! Z.lxor_spec in IHn0.
-          change (-1/2) with (-1).
-          rewrite VA. rewrite VB.
-          rewrite MA.
-          evalt (Z.b2z (xorb (xorb true true) false && Z.odd (-1))).
-          replace ((va / 2 - vb / 2 + ma / 2 + -1 + 0))
-                    with ((va / 2 - vb / 2 + ma / 2 + -1)) by ring.
-          repeat split; try tauto.
-          lia.
-          lia. lia. lia. lia.
-
-
-
-
-
-          destruct IHn0 as (H1 & H2).
-          rewrite H1.
-
-          replace (i / 2 - j -2 - 0) with (i / 2 - j / 2 ) by ring.
-
-        
-
-        remember (-  Z.b2z (negb (Z.odd i) && Z.odd j)) as cr1.
-        replace ( i/ 2 - j / 2 -  Z.b2z (negb (Z.odd i) && Z.odd j))
-          with  (i / 2 - j /2 +  cr1) by lia.
-        assert (exists cr2,
-                   cr2 = Z.b2z (xorb (Z.odd va) (Z.odd vb) && Z.odd ma) -  Z.b2z (negb (Z.odd va) && Z.odd vb) /\ -1 <= cr2 <= 1).
-        {
-          unfold gamma in *; simpl in * ; subst.
-          bits.
-          destruct (Z.odd i),(Z.odd j),(Z.odd ma),(Z.odd mb);
-            try discriminate;
-            try (exists 0; simpl; lia);
-            try (exists 1; simpl ; lia);
-            try (exists (-1); simpl ; lia).
-        }
-        destruct H1 as (cr2 & CR1).
-        replace (va / 2 - vb /2 -                  Z.b2z (negb (Z.odd va) && Z.odd vb) +
-                 ma / 2 +
-                   Z.b2z (xorb (Z.odd va) (Z.odd vb) && Z.odd ma))
-          with   (va / 2 - vb /2 + ma / 2 + cr2) by lia.
-        assert (exists cr3, Z.b2z cr3 =
-                              Z.b2z (negb (Z.odd va) && Z.odd vb)
-                              +
-                                Z.b2z
-                                  (negb (xorb (Z.odd va) (Z.odd vb)) && Z.odd mb)).
-        {
-          unfold gamma in *; simpl in * ; subst.
-          bits.
-          destruct (Z.odd i),(Z.odd j),(Z.odd ma),(Z.odd mb);
-            try discriminate;
-            try (exists true; reflexivity);
-            try (exists false;reflexivity).
-        }
-        destruct H1 as (cr3 & CR3).
-        replace
-
-        simpl.
-          simpl. admit.
-          simpl. admit.
-          simpl. admit.
-          simpl. admit.
-          simpl. admit.
-          simpl. admit.
-          simpl.
-          try (exists 0; simpl; lia);
-            try (exists 1; simpl ; lia);
-            try (exists (-1); simpl ; lia).
-        }
-
-
-
-        end.
-        { rewrite! Z.sub_0_r in *.
-          rewrite! Z.add_0_r in *.
-          repeat split; try tauto.
-        }
-        {
-          rewrite! Z.sub_0_r in *.
-          rewrite! Z.add_0_r in *.
-          replace (va / 2 - vb / 2 - mb / 2 + -1 / 2 + 1)
-            with  (va / 2 - vb / 2 - mb / 2 + (-1 / 2 + 1)) by ring.
-          repeat split; try tauto.
-          replace (va / 2 - vb / 2 - mb / 2 + -2/2 + 1)
-            with  (va / 2 - vb / 2 - mb / 2 ) by lia.
-          tauto.
-        }
-        {
-          rewrite! Z.sub_0_r in *.
-          rewrite! Z.add_0_r in *.
-          change (-1/2) with (-1).
-          replace (va / 2 - vb / 2 + ma / 2 + -1 + 1)
-            with  (va / 2 - vb / 2 + ma / 2 ) by ring.
-          replace (va / 2 - vb / 2 - mb / 2 + -2/2)
-            with  (va / 2 - vb / 2 - mb / 2 + -1) by lia.
-          replace (va / 2 - vb / 2 - mb / 2 + -1 + 1)
-            with  (va / 2 - vb / 2 - mb / 2 ) by lia.
-          repeat split ; try tauto.
-        }
-        {
-          rewrite! Z.sub_0_r in *.
-          rewrite! Z.add_0_r in *.
-          change (-1/2) with (-1).
-          replace (va / 2 - vb / 2 + ma / 2 + -1 + 1)
-            with  (va / 2 - vb / 2 + ma / 2 ) by ring.
-          replace (va / 2 - vb / 2 - mb / 2 + -1 + 1)
-            with  (va / 2 - vb / 2 - mb / 2 ) by ring.
-          replace (va / 2 - vb / 2 - mb / 2 + -2/2 + 1)
-            with  (va / 2 - vb / 2 - mb / 2 ) by lia.
-          repeat split; try tauto.
-        }
-        {
-          rewrite! Z.sub_0_r in *.
-          rewrite! Z.add_0_r in *.
-          change (-1/2) with (-1).
-          replace (va / 2 - vb / 2 - mb / 2  -1 + - 1)
-            with  (va / 2 - vb / 2 - mb / 2 + -2) by ring.
-          replace (va / 2 - vb / 2 + ma / 2 + -1 +  1)
-            with  (va / 2 - vb / 2 + ma / 2) by ring.
-          repeat split; try tauto.
-        }
-        {
-          rewrite! Z.sub_0_r in *.
-          rewrite! Z.add_0_r in *.
-          change (-1/2) with (-1).
-          change (-2/2) with (-1).
-          replace (va / 2 - vb / 2 - mb / 2 + -1 + 1)
-            with  (va / 2 - vb / 2 - mb / 2) by ring.
-          replace (va / 2 - vb / 2 + ma / 2 + -1 + 1)
-            with  (va / 2 - vb / 2 + ma / 2) by ring.
-          tauto.
-        }
-        {
-
-
-
-
-      * rewrite H1.
-        change (Z.b2z false) with 0.
-        rewrite Z.sub_0_r.
-        rewrite andb_false_iff in H1.
-        destruct (bool_case (negb (Z.odd va) && Z.odd vb)).
-        rewrite H2.
-        change (Z.b2z false) with 0.
-        rewrite Z.sub_0_r.
-        destruct (bool_case (xorb (Z.odd va) (Z.odd vb) && Z.odd ma)).
-        rewrite H3.
-        change (Z.b2z false) with 0.
-        rewrite Z.add_0_r.
-        destruct (bool_case (negb (xorb (Z.odd va) (Z.odd vb)) && Z.odd mb)).
-        rewrite H4.
-        change (Z.b2z false) with 0.
-        rewrite Z.sub_0_r.
-        { rewrite IHn0.
-        reflexivity.
-        apply gamma_div2;auto.
-        apply gamma_div2;auto.
-        }
-        {
-          rewrite H4.
-          change (Z.b2z true) with 1.
-
-
-        
-
-      revert C1 C2.
-      generalize (Z.odd va) as bva.
-      generalize (Z.odd vb) as bvb.
-      generalize (Z.odd ma) as bma.
-      generalize (Z.odd mb) as bmb.
-      generalize (Z.odd i)  as bi.
-      generalize (Z.odd j)  as bj.
-      intros bj bi.
-      assert ( bj = true -> bi = true) by admit.
-      apply gamma_div2 in H.
-      apply gamma_div2 in H0.
-      revert H1 H H0.
-      clear IHn0.
-      generalize (va / 2) as va'.
-      generalize (vb / 2) as vb'.
-      generalize (ma / 2) as ma'.
-      generalize (mb / 2) as mb'.
-      generalize (i/2) as i'.
-      generalize (j/2)  as j'.
-      revert bi bj.
-      clear.
-      induction n0.
-      {
-        intros.
-        rewrite ! Z.bit0_odd.
-        rewrite ! Zodd_land.
-        rewrite ! Z.odd_sub.
-        rewrite ! Zodd_b2z.
-        rewrite ! Zodd_lnot.
-        rewrite ! Zodd_lor.
-        rewrite ! Zodd_lxor.
-        rewrite ! Z.odd_sub.
-        rewrite ! Z.odd_add.
-        rewrite ! Z.odd_sub.
-        rewrite ! Zodd_b2z.
-        unfold gamma in *.
-        simpl in *. subst.
-        rewrite! Zodd_land.
-        rewrite! Zodd_lnot.
-        destruct bva,bma,bvb,bmb; try discriminate; try btauto.
-        bsimpl.
-        destruct bi,bj; simpl in H1; try intuition congruence.
-        btauto.
-        btauto.
-        btauto.
-        destruct bi,bj; simpl in H1; try intuition congruence.
-        btauto.
-        btauto.
-        btauto.
-        destruct bi,bj; simpl in H1; try intuition congruence.
-        btauto.
-        btauto.
-        btauto.
-        destruct bi,bj; simpl in H1; try intuition congruence.
-        btauto.
-        btauto.
-        btauto.
-
-
-      rewrite! Zlor_div2.
-      rewrite! Zodd_lor.
-      rewrite! Z.odd_sub.
-      rewrite! Zodd_lor.
-      assert (Z3 : exists z3',
-                 z3' = Z.b2z (negb (Z.odd i) && Z.odd j) + z4 / 2 + Z.b2z (negb (xorb (Z.odd i) (Z.odd j)) && Z.odd z4)).
-      {
-        eexists. reflexivity.
-      }
-      destruct Z3 as (z3' & EQ).
-      replace (i / 2 - j / 2 - Z.b2z (negb (Z.odd i) && Z.odd j) - z4 / 2 -
-        Z.b2z (negb (xorb (Z.odd i) (Z.odd j)) && Z.odd z4))
-        with (i / 2 - j / 2 - z3') by lia.
-      assert (Z2 : exists z2',
-                 z2' =
-                 Z.b2z (negb (Z.odd va || Z.odd ma) && Z.odd vb) +
-                 z2 / 2 +
-                 Z.b2z
-                   (negb (xorb (Z.odd va || Z.odd ma) (Z.odd vb)) &&
-                    Z.odd z2)).
-      {
-        eexists ; reflexivity.
-      }
-      destruct Z2 as (z2' & Z2).
-      replace (
-          (Z.lor (va / 2) (ma / 2) - vb / 2 -
-                 Z.b2z (negb (Z.odd va || Z.odd ma) && Z.odd vb) -
-                 z2 / 2 -
-                 Z.b2z
-                   (negb (xorb (Z.odd va || Z.odd ma) (Z.odd vb)) &&
-                    Z.odd z2)))
-        with
-        (Z.lor (va / 2) (ma / 2) - vb /2 - z2') by lia.
-      assert (Z4 : exists z4', z4' =
-                                  z3 /2  + Z.b2z (negb (Z.odd vb || Z.odd mb) && Z.odd z3) - Z.b2z (negb (Z.odd va) && xorb (Z.odd vb || Z.odd mb) (Z.odd z3))).
-      eexists; reflexivity.
-      destruct Z4 as (z4' & Z4).
-      replace ((va / 2 - (Z.lor (vb / 2) (mb / 2) - z3 / 2 - Z.b2z (negb (Z.odd vb || Z.odd mb) && Z.odd z3)) -
-                  Z.b2z (negb (Z.odd va) && xorb (Z.odd vb || Z.odd mb) (Z.odd z3)))) with
-        ((va / 2 - (Z.lor (vb / 2) (mb / 2) - z4'))) by lia.
-      assert (Z1 : exists z1',
-                 z1' =
-                   Z.b2z (negb (Z.odd va) && Z.odd vb) +
-                     z1 / 2 +
-        Z.b2z (negb (xorb (Z.odd va) (Z.odd vb)) && Z.odd z1)).
-      { eexists; reflexivity. }
-      destruct Z1 as (z1' & Z1).
-      replace ((va / 2 - vb / 2 - Z.b2z (negb (Z.odd va) && Z.odd vb) -
-        z1 / 2 -
-                  Z.b2z (negb (xorb (Z.odd va) (Z.odd vb)) && Z.odd z1))) with ((va / 2 - vb / 2 - z1')) by lia.
-      rewrite IHn0 with (z1:=z1').
-      reflexivity.
-      apply gamma_div2;auto.
-      apply gamma_div2;auto.
-      subst.
-      bits.
-      unfold gamma in H,H0.
-      simpl in *.
-      subst.
-      bits.
-      destruct (Z.odd z4), (Z.odd z2), (Z.odd z1) , (Z.odd z3);
-        try discriminate; try btauto.
-      bsimpl.
-      bits.
-
-
-
-
-      
-      rewrite IHn0.
-
-
-      2: {  rewrite Z2.
-            apply Zminus_eq.
-            ring_simplify.
-            f_equal.
-            f_equal.
-            f_equal.
-
-
-          intros.
-        destruct (Z.odd va) eqn:VA;
-          destruct (Z.odd ma) eqn:MA;
-          destruct (Z.odd vb) eqn:VB;
-          destruct (Z.odd mb) eqn:MB;
-          destruct z2 eqn:Z2; simpl;
-          try (exists true; reflexivity);
-          try (exists false ; reflexivity).
-        - unfold gamma in H0.
-          simpl in H0.
-          subst.
-          rewrite Zodd_land in VB.
-          rewrite Zodd_lnot in VB.
-          rewrite MB in VB.
-          simpl in VB.
-          rewrite andb_false_r in VB. discriminate.
-        - rewrite C2 in C1.
-          simpl in C1.
-          unfold gamma in*.
-        simpl in *.
-        subst.
-        rewrite Zodd_land in VB.
-        rewrite Zodd_lnot in VB.
-        rewrite MB in VB.
-        rewrite Zodd_land in *.
-        rewrite Zodd_lnot in *.
-        rewrite MA in *.
-        simpl in *.
-        rewrite andb_true_r in VB.
-        rewrite VB in *.
-        rewrite andb_true_r in *.
-
-
-
-
-
-
-
-
-      assert (exists z2,
-                 Z.b2z z2 =
-                   Z.b2z (negb (Z.odd va || Z.odd ma) && Z.odd vb) -
-                     Z.b2z z2 / 2 - Z.b2z (negb (xorb (Z.odd va || Z.odd ma) (Z.odd vb)) && z2))
-                (va / 2 - Z.lor (vb / 2) (mb / 2) -
-                 Z.b2z (negb (Z.odd va) && (Z.odd vb || Z.odd mb))))
-
-
-
-      destruct ((negb (Z.odd i) && Z.odd j)) eqn:IJ;
-        [change (Z.b2z true) with 1 | change (Z.b2z false) with 0].
-      { admit. }
-      destruct ((negb (Z.odd (Z.lor va ma)) &&
-                    Z.odd vb)) eqn:VAMA;
-        [change (Z.b2z true) with 1 | change (Z.b2z false) with 0].
-      { admit. }
-      destruct ((negb (Z.odd va) &&
-                    Z.odd (Z.lor vb mb))) eqn:VAVB;
-        [change (Z.b2z true) with 1 | change (Z.b2z false) with 0].
-      { admit. }
-      destruct ((negb (Z.odd va) &&
-                   Z.odd vb)) eqn:VAVB';
-        [change (Z.b2z true) with 1 | change (Z.b2z false) with 0].
-      { admit. }
-      { rewrite ! Z.sub_0_r.
-        rewrite IHn0.
-        reflexivity.
-        apply gamma_div2; auto.
-        apply gamma_div2; auto.
-      }
-      replace (Z.to_nat (Z.of_nat n0)) with n0 by lia.
-      assert (GI := gamma_div2 _ _ _ H).
-      assert (GJ := gamma_div2 _ _ _ H0).
-      destruct (sub_borrow_bit (Z.lor (va/2) (ma/2)) (vb/2) false n0) eqn:SB.
-      *
-        assert (SB' := SB).
-        apply minimal_borrows with (1:=GI) (2:=GJ) in SB.
-        rewrite SB.
-        assert (SB'':= SB).
-        apply maximal_borrows with (1:=GI) (2:=GJ)  in SB.
-        rewrite SB.
-        {
-          repeat match goal with
-          | |- context[Z.testbit (Z.b2z ?X) ?N] =>
-              let fr := fresh in
-              destruct X eqn:fr;
-              change (Z.b2z true) with 1;
-              change (Z.b2z false) with 0
-                 end.
-          {  rewrite Ztestbit_1.
-             destruct (Z.eq_dec (Z.of_nat n0) 0).
-             - rewrite! e.
-               replace n0 with 0%nat in * by lia.
-               unfold sub_borrow_bit in *.
-               discriminate.
-             -
-               bits;try lia.
-               repeat xorb_def.
-               intros.
-               subst.
-               itauto.
-
-
-               subst.
-               itauto.
-               Require Import Cdcl.Ctauto.
-               rewrite! Itauto.xorb_def.
-               generalize (IHn0 _ _ _ _ _ _ GI GJ).
-               unfold gamma in *; simpl in *.
-               subst.
-               bits;try lia.
-               replace
-
-               clear.
-               itauto.
-
-
-
-            change (Z.b2z false) with 0.
-            bits.
-            rewrite! sub_borrow_bit_zero.
-
-
-            destruct n0.
-          - simpl. bits; try lia.
-            unfold gamma in *.
-            simpl in *.
-            rewrite <- GI; rewrite <- GJ.
-            bits; try lia.
-          -
-            btauto.
-
-
-        destruct (Z.odd va) eqn:VA; destruct (Z.odd vb) eqn:VB;
-           destruct (Z.odd i)eqn:I; destruct (Z.odd j) eqn:J.
-         { simpl. bits.
-           rewrite !sub_borrow_bit_zero.
-           unfold gamma in *. simpl in *. subst.
-           bits.
-           btauto.
-
-         generalize (IHn0 _ _ _ _ _ _ GI GJ).
-         unfold gamma in *.
-         simpl in *.
-         rewrite <- GI; rewrite <- GJ.
-         subst.
-         bits;try lia.
-         btauto_ext.
-
-      remember (va - Z.lor vb mb) as beta.
-      rewrite <- Z.bits_inj_iff in Heqbeta.
-      specialize (Heqbeta n).
-      rewrite Ztestbit_sub_sound in Heqbeta by lia.
-
-      rewrite SB in Heqbeta.
-      rewrite Heqbeta.
-      {
-        set (alphab := sub_borrow_bit (Z.lor va ma) vb false (Z.to_nat n)) in *.
-        set (betab := sub_borrow_bit va (Z.lor vb mb) false (Z.to_nat n)) in *.
-        set (chi := xorb alphab betab).
-
-
-
-        rewrite Ztestbit_sub_sound by lia.
-        unfold gamma in * ; simpl in *; subst.
-        bits; try lia.
-        revert Heqbeta SB Heqalpha SB' SB''.
-        btauto_ext.
-        admit.
-      }
-    + rewrite (Ztestbit_sub_sound _ i) by lia.
-      destruct (sub_borrow_bit i j false (Z.to_nat n)) eqn:SB1.
-      * assert (SB1:=SB1).
-        eapply maximal_borrows in SB1 ; eauto.
-        rewrite Ztestbit_sub_sound by lia.
-        rewrite SB1.
-        unfold gamma in * ; simpl in * ; subst.
-        bits;try lia.
-        btauto.
-      * rewrite Ztestbit_sub_sound by lia.
-        bits ; try lia.
-        destruct (sub_borrow_bit va (Z.lor vb mb) false (Z.to_nat n)) eqn:SB2.
-        { admit. }
-        { unfold gamma in * ; simpl in * ; subst.
-          bits;try lia.
-          rewrite Ztestbit_sub_sound by lia.
-          unfold gamma in * ; simpl in * ; subst.
-          bits;try lia.
-          btauto.
-
-
-
-
-    rewrite! Ztestbit_add_sound by lia.
-   rewrite! Z.lnot_spec by lia.
-   rewrite! Ztestbit_add_sound by lia.
-   rewrite! Z.lor_spec.
-   rewrite Z.lxor_spec.
-   rewrite! Ztestbit_add_sound by lia.
-   rewrite !Z.bits_m1 by lia.
-   rewrite ! Z.lor_spec.
-   rewrite! Z.lnot_spec by lia.
-   rewrite! Ztestbit_add_sound by lia.
-   rewrite !Z.bits_m1 by lia.
-   change (j + (-1)) with (j - 1).
-   change (vb + (-1)) with (vb - 1).
-   change (Z.lor vb mb + (-1)) with (Z.lor vb mb - 1).
-   rewrite !Z.lnot_pred in *.
-   destruct (add_carry_bit va (- vb) false (Z.to_nat n)) eqn:VAVB.
-   destruct (add_carry_bit i (- j) false (Z.to_nat n)) eqn:IJ.
-
-
-   apply minimum_carries in VAVB.
-
-   repeat match goal with
-   | |- context [add_carry_bit ?A ?B ?C ?D] =>
-       let f := fresh BB in
-       destruct (add_carry_bit A B C D) eqn:f
-          end;
-     try
-       (unfold gamma in * ; simpl in *;
-        subst;
-        rewrite! Z.land_spec;
-        rewrite! Z.lor_spec;
-        rewrite! Z.land_spec;
-        rewrite! Z.lnot_spec by lia;
-        btauto).
-   + admit.
-   +
-     unfold gamma in *.
-     simpl in *. subst.
-     rewrite! Z.land_spec in *.
-     rewrite! Z.lnot_spec in * by lia.
-     elim_testbit_eqn; try discriminate.
-   +
-     unfold gamma in *.
-     simpl in *. subst.
-     rewrite! Z.land_spec in *.
-     rewrite! Z.lnot_spec in * by lia.
-     elim_testbit_eqn; try discriminate.
-     * simpl. intros.
-
-   +
-   +
-
-
-
-
-     elim_testbit_eqn; try discriminate.
-     simpl.
-     intros.
-     exfalso.
-
-
-     induction n.
-     simpl in *.
-
-
-     simpl.
-     exfalso.
-     unfold gamma in *.
-     simpl in *.
-     subst.
-     rewrite lor_land_not in *.
-
-   +
-     admit.
-   + admit.
-
-
-
-
-     apply maximum_carries with (1:=H) (2:=H0) in CB.
-     unfold sigma_lor in CB.
-     simpl in CB.
-     rewrite! Ztestbit_add_sound by lia.
+  - (**because here is `(va - vb)` n while we should have `(va - Z.lor vb mb)` *)
+    rewrite! Ztestbit_sub_sound by lia.
+    rewrite! Z.lnot_spec by lia.
+    rewrite! Z.lor_spec.
+    rewrite Z.lxor_spec.
+    destruct (sub_borrow_bit i j false (Z.to_nat n)) eqn:CB.
+   + apply maximum_borrows with (1:=Hgi) (2:=Hgj) in CB.
+     rewrite! Ztestbit_sub_sound by lia.
      rewrite CB.
      rewrite! Z.lor_spec.
      unfold gamma in *.
@@ -2203,14 +1671,14 @@ Proof.
      subst.
      rewrite! Z.land_spec.
      rewrite! Z.lnot_spec by lia.
+     remember (sub_borrow_bit (Z.lor (Z.land i (Z.lnot ma)) ma) (Z.land j (Z.lnot mb)) false
+     (Z.to_nat n)) as KKK eqn: HK.
      btauto.
-   + rewrite! Ztestbit_add_sound by lia.
+   + rewrite! Ztestbit_sub_sound by lia.
      rewrite! Z.lor_spec.
-     destruct (add_carry_bit va vb false (Z.to_nat n)) eqn:CB'.
-     * change va with (fst (va,ma)) in CB'.
-       change vb with (fst (vb,mb)) in CB'.
-       exfalso.
-       specialize (minimum_carries _ _ _ _ H H0 _ _ CB').
+     destruct (sub_borrow_bit (Z.lor va ma) vb false (Z.to_nat n)) eqn:CB'.
+     * exfalso.
+       specialize (minimum_borrows _ _ _ _ _ _ Hgi Hgj _ _ CB').
        congruence.
      * unfold gamma in *.
        simpl in *.
@@ -2219,11 +1687,12 @@ Proof.
        rewrite! Z.lnot_spec by lia.
        btauto.
 Qed.
-*)
 
 Definition tnum_lshift (a: tnum) (shift: Z): tnum :=
-  ( Z.shiftl (fst a) shift,
-  Z.shiftl (snd a) shift).
+  ( Z.shiftl (fst a) shift, Z.shiftl (snd a) shift).
+
+Definition tnum_rshift (a: tnum) (shift: Z): tnum :=
+  ( Z.shiftr (fst a) shift, Z.shiftr (snd a) shift).
 
 Lemma tnum_lshift_sound : forall a i shift,
     gamma a i ->
@@ -2245,11 +1714,39 @@ Proof.
     rewrite! Z.land_spec.
     rewrite! Z.lnot_spec by lia.
     rewrite! Z.shiftl_spec by lia.
-    assert (Hns: n < shift \/ n >= shift) by lia.
-    destruct Hns as [Hns | Hns].
-    + remember (n - shift) as m.
-      assert (Hm: m < 0) by lia.
-      rewrite ! Z.testbit_neg_r by lia.
+    remember (n - shift) as m.
+    assert (Hm0: m < 0 \/ m >= 0) by lia.
+    destruct Hm0 as [Hm0 | Hm0].
+    + rewrite ! Z.testbit_neg_r by lia.
+      auto.
+    + rewrite! Z.lnot_spec by lia.
+      f_equal.
+Qed.
+
+Lemma tnum_rshift_sound : forall a i shift,
+    gamma a i ->
+    gamma (tnum_rshift a shift) (Z.shiftr i shift).
+Proof.
+  unfold gamma.
+  intros a i shift Hg.
+  unfold tnum_rshift.
+  simpl.
+  rewrite <- Hg.
+  apply Z.bits_inj.
+  unfold Z.eqf.
+  simpl.  intros n.
+  assert (Hn0: n < 0 \/ n >= 0) by lia.
+  destruct Hn0.
+  - destruct n ; try lia. simpl. reflexivity.
+  - rewrite! Z.land_spec.
+    rewrite! Z.shiftr_spec by lia.
+    rewrite! Z.land_spec.
+    rewrite! Z.lnot_spec by lia.
+    rewrite! Z.shiftr_spec by lia.
+    remember (n + shift) as m.
+    assert (Hm0: m < 0 \/ m >= 0) by lia.
+    destruct Hm0 as [Hm0 | Hm0].
+    + rewrite ! Z.testbit_neg_r by lia.
       auto.
     + rewrite! Z.lnot_spec by lia.
       f_equal.
