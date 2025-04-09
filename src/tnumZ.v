@@ -111,6 +111,24 @@ Definition gamma  (a: tnum) (x: Z) : Prop :=
    (Z.land x (Z.lnot (snd a))) = (fst a).
 
 
+
+Definition wf_tnum (a: tnum): Prop := (Z.land (fst a) (snd a)) = 0.
+
+(** gamma definition implies wf *)
+Lemma gamma_imply_wf: forall va ma i,
+  gamma (va, ma) i ->
+  wf_tnum (va, ma).
+Proof.
+  unfold gamma, wf_tnum; simpl.
+  intros va ma i Hg.
+  subst.
+  rewrite <- Z.land_assoc.
+  rewrite Z.land_comm with (b := ma).
+  rewrite Z.land_lnot_diag.
+  apply Z.land_0_r.
+Qed.   
+
+
 Lemma add_lor_excl : forall x y,
     Z.land x y = 0%Z ->
   (x + y)%Z = Z.lor x y.
@@ -419,15 +437,13 @@ Definition tnum_add (a b: Z * Z): Z * Z :=
   let mu    := Z.lor chi (Z.lor (snd a) (snd b)) in
     (Z.land sv (Z.lnot mu), mu).
 
-Definition tnum_sub (a b: tnum): tnum :=
+Definition tnum_sub_easy (a b: tnum): tnum :=
   let dv    :=  (fst a) - (fst b) in
   let alpha :=  dv + (snd a) in
   let beta  := dv - (snd b) in
   let chi   := Z.lxor alpha beta in
   let mu    := Z.lor chi (Z.lor (snd a) (snd b)) in
     (Z.land alpha (Z.lnot mu), mu).
-
-
 
 
 (* In the definition of [tnum_add], we remark that
@@ -575,9 +591,7 @@ Proof.
        btauto.
 Qed.
 
-(** substraction *)
-
-
+(** substraction: tnum_sub' is better than tnum_sub_easy, w.r.t. proof *)
 Definition tnum_sub' (a b: tnum): tnum :=
   let dv    :=  (fst a) - (fst b) in
   let alpha :=  (Z.lor (fst a) (snd a)) - fst b in
@@ -586,13 +600,13 @@ Definition tnum_sub' (a b: tnum): tnum :=
   let mu    := Z.lor chi (Z.lor (snd a) (snd b)) in
     (Z.land alpha (Z.lnot mu), mu).
 
-Lemma tnum_sub_eq : forall a b i j,
+Lemma tnum_sub_easy_eq : forall a b i j,
     gamma a i ->
     gamma b j ->
-    tnum_sub a b = tnum_sub' a b.
+    tnum_sub_easy a b = tnum_sub' a b.
 Proof.
   intros.
-  cbv beta delta [tnum_sub tnum_sub'].
+  cbv beta delta [tnum_sub_easy tnum_sub'].
   rewrite <- gamma_add_lor with (1:= H).
   rewrite <- gamma_add_lor with (1:= H0).
   cbv zeta.
@@ -869,135 +883,7 @@ Proof.
           destruct (Z.testbit ma (Z.of_nat n)) eqn: Hma; auto.
         }
         destruct (Z.testbit ma (Z.of_nat n)) eqn: Hma; auto.
-Qed.  
-
-(*
-Lemma minimum_borrows : forall va ma  i vb mb j,
-    gamma (va,ma) i ->
-    gamma (vb,mb) j ->
-    forall n,
-      sub_borrow_bit i j false n = true ->
-      sub_borrow_bit (Z.lor va ma) vb false n = true ->
-      sub_borrow_bit va (Z.lor vb mb) false n = true ->
-      sub_borrow_bit va vb false n = true.
-Proof.
-  intros.
-  unfold gamma in *. simpl in *.
-  induction n.
-  - simpl in *. congruence.
-  - simpl in *.
-    simpl.
-    rewrite! Z.lor_spec in *.
-    rewrite! orb_true_iff in *.
-    rewrite! andb_true_iff in *.
-    rewrite! negb_true_iff in *.
-    rewrite! orb_true_iff in *.
-    rewrite! orb_false_iff in *.
-    intuition idtac.
-    + rewrite H3 in *.
-      rewrite orb_false_l in H6.
-      simpl.
-      destruct (Z.testbit vb (Z.of_nat n)) eqn:VB.
-      tauto.
-      right.
-      split;auto.
-      rewrite <- H in H3.
-      rewrite! Z.land_spec in *.
-      rewrite! Z.lnot_spec in * by lia.
-      rewrite andb_false_iff  in H3.
-      destruct H3.
-      rewrite xorb_false_r in H6.
-      rewrite H2 in *.
-      clear H2.
-      subst.
-      rewrite lor_land_not in *.
-      * induction n.
-        {
-          simpl in *.
-          rewrite Zodd_land in VB.
-          rewrite H5 in  VB.
-          rewrite Zodd_lnot in VB.
-          rewrite H4 in VB. simpl in VB.
-
-
-      destruct VB. congruence.
-      rewrite xorb_false_r in H6.
-      rewrite H1 in *.
-      rewrite H6 in *.
-      simpl in *. rewrite H4 in *. simpl in *.
-      rewrite lor_land_not in *.
-
-
-    destruct (sub_borrow_bit (Z.lor va ma) vb false n) eqn:CB1;
-      destruct (sub_borrow_bit va (Z.lor vb mb) false n) eqn:CB2.
-    + rewrite IHn by reflexivity.
-      subst.
-      rewrite Z.land_spec in *.
-      rewrite Z.lnot_spec in * by lia.
-      elim_testbit;try reflexivity ; try discriminate.
-      simpl. simpl in *.
-      rewrite! H in *.
-      exfalso.
-      specialize (IHn eq_refl eq_refl).
-      revert CB1 CB2 IHn.
-      clear. { induction n.
-               - simpl. discriminate.
-               - simpl.
-                 rewrite! Z.lor_spec.
-                 rewrite! Z.land_spec.
-                 rewrite! Z.lnot_spec by lia.
-                 destruct (sub_borrow_bit (Z.lor i ma) (Z.land j (Z.lnot mb)) false n).
-                 destruct (sub_borrow_bit (Z.land i (Z.lnot ma)) (Z.lor j mb) false n).
-                 destruct (sub_borrow_bit i j false n); simpl.
-                 intros.
-                 elim_testbit;try discriminate.
-                 simpl in *.
-
-
-
-
-      unfold negb in H1 at 1.
-      rewrite andb_false_l in H1.
-      rewrite orb_false_l in H1.
-      destruct (Z.testbit vb (Z.of_nat n)) eqn:VB.
-      *  simpl in H1. rewrite andb_true_r in H1.
-         rewrite IHn by assumption.
-         rewrite andb_true_l. clear IHn.
-         btauto.
-
-
-
-
-    destruct (sub_borrow_bit (Z.lor (Z.land i (Z.lnot ma)) ma) (Z.land j (Z.lnot mb)) false n).
-    +
-      rewrite (IHn eq_refl).
-      rewrite! Z.lor_spec in H1.
-      rewrite! Z.land_spec in H1.
-      rewrite! Z.lnot_spec in H1 by lia.
-      rewrite andb_true_l in H1.
-      elim_testbit;try discriminate;try reflexivity.
-    + elim_testbit;try discriminate;try reflexivity.
-    destruct (sub_borrow_bit i j false n).
-    + rewrite IHn by reflexivity.
-      clear IHn.
-      rewrite andb_true_l in H1.
-      rewrite orb_true_iff in H1.
-      rewrite andb_true_iff in H1.
-      destruct H1.
-      * destruct H.
-        rewrite negb_true_iff in H.
-        rewrite H. rewrite H0.
-        btauto.
-      *  elim_testbit; try reflexivity; try discriminate.
-         discriminate. discriminate. simpl. simpl in H.
-    + clear IHn.
-      rewrite andb_false_l in H1.
-      rewrite orb_false_r in H1.
-      rewrite andb_true_iff in H1.
-      destruct H1. rewrite H. rewrite H0.
-      btauto.
 Qed.
-*)
 
 Ltac elim_testbit_eqn :=
   (repeat
@@ -1363,143 +1249,6 @@ Proof.
   reflexivity.
 Qed.
 
-
-(*
-Lemma sub_uncertain : forall n va ma vb mb i j,
-    gamma (va,ma) i ->
-    gamma (vb,mb) j ->
-    Z.testbit (Z.lor (Z.lxor (Z.lor va ma - vb)
-                        (va - Z.lor vb mb)) (Z.lor ma mb)) (Z.of_nat n) =
-   orb (xorb (sub_borrow_bit (Z.lor va ma) vb false n)
-          (sub_borrow_bit va (Z.lor vb mb) false n)) (Z.testbit (Z.lor ma mb) (Z.of_nat n)).
-Proof.
-  destruct n.
-  { (*n = 0*)
-    simpl. intros.
-    rewrite! Zodd_lor.
-    rewrite Zodd_lxor.
-    rewrite! Z.odd_sub.
-    unfold gamma in *; simpl in *; subst.
-    rewrite! Zodd_lor.
-    rewrite! Zodd_land.
-    rewrite! Zodd_lnot.
-    btauto.
-  }
-  intros.
-  rewrite borrow_bit_rew.
-  cbv zeta.
-  replace (Z.of_nat (S n)) with (Z.succ (Z.of_nat n)) by lia.
-  rewrite <- !Z.div2_bits by lia.
-  destruct n.
-  { (* n = 1 *)
-    simpl.
-    bits.
-    btauto.
-  }
-  rewrite borrow_bit_rew.
-  cbv zeta.
-  replace (Z.of_nat (S n)) with (Z.succ (Z.of_nat n)) by lia.
-  rewrite <- !Z.div2_bits by lia.
-  bits.
-  destruct n.
-  {
-    change (Z.of_nat 0) with 0.
-    rewrite ! sub_borrow_bit_0.
-    bits.
-    rewrite! Zdiv_Zdiv by lia.
-    replace (2 * 2) with 4 by reflexivity.
-    rewrite! borrow_bit_rew.
-    cbv zeta.
-    change (Z.of_nat 0) with 0.
-    bits.
-    replace (Z.of_nat 1) with (Z.succ 0) by lia.
-    rewrite <- !Z.div2_bits by lia.
-    bits.
-    btauto.
-
-
-
-
-
-      rewrite! Zodd_land.
-    rewrite! Zodd_lnot.
-    rewrite! Zland_div2.
-    rewrite! sub_shift.
-    rewrite! Zland_div2.
-    rewrite! Zlor_div2.
-    rewrite! Zodd_land.
-    rewrite! Z.odd_sub.
-    rewrite! Zodd_b2z.
-    rewrite! Zodd_lor.
-    bits; try lia.
-    rewrite! Zodd_land.
-    btauto.
-    bits; try lia.
-      elim_testbit_one_eqn.
-      elim_testbit_one_eqn.
-      elim_testbit_one_eqn.
-      elim_testbit_one_eqn.
-      elim_testbit_one_eqn.
-      btauto_ext.
-      btauto_ext.
-      btauto_ext.
-      btauto_ext.
-      elim_testbit_one_eqn.
-      elim_testbit_one_eqn.
-      elim_testbit_one_eqn.
-      btauto_ext.
-      btauto_ext.
-      simpl.
-      elim_testbit_one_eqn.
-      elim_testbit_one_eqn.
-      elim_testbit_one_eqn.
-      elim_testbit_one_eqn.
-      elim_testbit_eqn.
-      btauto_ext.
-      simpl.
-      elim_testbit_one_eqn.
-
-
-
-      rewrite! andb_true_iff in ODD.
-      rewrite! negb_true_iff in ODD.
-      destruct ODD as ((O1 & O2) & O3).
-      unfold Z.b2z.
-      assert (gamma (va / 2 , ma /2 ) (i/2)).
-      {
-        unfold gamma in *. simpl in *.
-        subst.
-        rewrite Zland_div2.
-        rewrite Zlnot_div2.
-        reflexivity.
-      }
-      assert (gamma (vb / 2 , mb /2 ) (j/2)).
-      {
-        unfold gamma in *. simpl in *.
-        subst.
-        rewrite Zland_div2.
-        rewrite Zlnot_div2.
-        reflexivity.
-      }
-      specialize (IHn _ _ _ _ _ _ H1 H2).
-      revert IHn.
-      bits.
-      rewrite! Ztestbit_sub_sound.
-      bits.
-      rewrite Ztestbit_1.
-      destruct (Z.eq_dec (Z.of_nat n) 0).
-      * rewrite e.
-        simpl.
-        assert (n = 0%nat) by lia.
-        subst.
-        simpl.
-        unfold gamma in *. simpl in *. subst.
-        rewrite! Zodd_land.
-        rewrite! Zodd_lnot.
-        admit.
-      *
-*)
-
 Lemma sub_borrow_bit_zero : forall n x,
 sub_borrow_bit x 0 false n = false.
 Proof.
@@ -1508,20 +1257,6 @@ Proof.
   - simpl. intros.  rewrite IHn.
     bits. btauto.
 Qed.
-
-(*
-Ltac xorb_def :=
-  match goal with
-  | |- context [xorb ?A ?B] =>
-      let a := fresh in
-      let ea := fresh in
-      let b := fresh in
-      let eb := fresh in
-      remember A as a eqn:ea;
-      remember B as b eqn:eb;
-      rewrite (xorb_def a b);
-      revert ea; revert eb
-  end. *)
 
 Goal forall x y,
     (if Z.odd x then false else Z.odd y) =
@@ -1635,8 +1370,430 @@ Proof.
   btauto.
 Qed.
 
-Lemma tnum_sub_sound : forall a b i j
-  ,
+(**prove the tnum_sub_eq firstly *)
+
+
+Definition tnum_sub (a b: tnum): tnum :=
+  let dv    :=  (fst a) - (fst b) in
+  let alpha :=  dv + (snd a) in
+  let beta  := dv - (snd b) in
+  let chi   := Z.lxor alpha beta in
+  let mu    := Z.lor chi (Z.lor (snd a) (snd b)) in
+    (Z.land dv (Z.lnot mu), mu).
+
+
+Lemma add_carry_bit_and_not_false: forall n mb j,
+    add_carry_bit (Z.land j (Z.lnot mb)) mb false n = false.
+Proof.
+  induction n; intros.
+  - simpl; auto.
+  - simpl.
+    rewrite IHn.
+    rewrite andb_false_l.
+    rewrite orb_false_r.
+    rewrite! Z.land_spec.
+    rewrite! Z.lnot_spec by lia.
+    rewrite <- andb_assoc.
+    rewrite andb_negb_l.
+    rewrite andb_false_r.
+    auto.
+Qed.
+
+Lemma Ztestbit_and_not_false: forall mb n j
+  (HN: n >= 0)
+  (Hmb : Z.testbit mb n = false),
+    Z.testbit (Z.land j (Z.lnot mb) + mb) n = Z.testbit j n.
+Proof.
+  intros.
+  replace n with (Z.of_nat (Z.to_nat n)) in *.
+  2:{ apply Z2Nat.id; lia. }
+  rewrite testbit_add_sound.
+  rewrite! Z.land_spec.
+  rewrite! Z.lnot_spec by lia.
+  rewrite Hmb.
+  simpl.
+  rewrite add_carry_bit_and_not_false.
+  destruct (Z.testbit j (Z.of_nat (Z.to_nat n))); auto.
+Qed.
+
+Lemma Ztestbit_and_not_true: forall mb n j
+  (HN: n >= 0)
+  (Hmb : Z.testbit mb n = true),
+    Z.testbit (Z.land j (Z.lnot mb) + mb) n = true.
+Proof.
+  intros.
+  replace n with (Z.of_nat (Z.to_nat n)) in *.
+  2:{ apply Z2Nat.id; lia. }
+  rewrite testbit_add_sound.
+  rewrite! Z.land_spec.
+  rewrite! Z.lnot_spec by lia.
+  rewrite Hmb.
+  simpl.
+  rewrite add_carry_bit_and_not_false.
+  destruct (Z.testbit j (Z.of_nat (Z.to_nat n))); auto.
+Qed.
+
+Lemma Zand_not_or: forall a b,
+  (Z.land a (Z.lnot b)) + b = Z.lor a b.
+Proof.
+  intros.
+  apply Z.bits_inj.
+  unfold Z.eqf.
+  intro n.
+  assert (N : n < 0 \/ n >= 0) by lia.
+  destruct N as [HN | HN].
+  - destruct n; try lia; simpl.
+    reflexivity.
+  - rewrite! Z.lor_spec.
+    destruct (Z.testbit b n) eqn: Hb.
+    + rewrite Ztestbit_and_not_true; try assumption.
+      rewrite orb_true_r.
+      auto.
+    + rewrite Ztestbit_and_not_false; try assumption.
+      rewrite orb_false_r.
+      auto.
+Qed.
+
+Lemma sub_borrow_bit_and_not_true: forall n i ma j mb,  
+sub_borrow_bit (Z.lor i ma) (Z.land j (Z.lnot mb)) false n = true ->
+sub_borrow_bit (Z.land i (Z.lnot ma)) (Z.land j (Z.lnot mb)) false n = true.
+Proof.
+  induction n; simpl; intros.
+  - inversion H.
+  - rewrite! Z.lor_spec in *.
+    rewrite! Z.land_spec in *.
+    rewrite! Z.lnot_spec in * by lia.
+    destruct (Z.testbit i (Z.of_nat n)) eqn: Hi; simpl in *.
+    + destruct (Z.testbit j (Z.of_nat n)) eqn: Hj; simpl in *.
+      * destruct (Z.testbit ma (Z.of_nat n)) eqn: Hma; simpl in *.
+        {
+          destruct (Z.testbit mb (Z.of_nat n)) eqn: Hmb; simpl in *.
+          2:{ auto. }
+          rewrite andb_false_r in *.
+          inversion H.
+        }
+        {
+          destruct (Z.testbit mb (Z.of_nat n)) eqn: Hmb; simpl in *.
+          - rewrite andb_false_r in *.
+            inversion H.
+          - rewrite andb_true_r in *.
+            apply IHn; auto.
+        }
+      * rewrite andb_false_r in *.
+        inversion H.
+    + destruct (Z.testbit j (Z.of_nat n)) eqn: Hj; simpl in *.
+      * destruct (Z.testbit ma (Z.of_nat n)) eqn: Hma; simpl in *.
+        {
+          destruct (Z.testbit mb (Z.of_nat n)) eqn: Hmb; simpl in *.
+          2:{ auto. }
+          rewrite andb_false_r in *.
+          inversion H.
+        }
+        {
+          destruct (Z.testbit mb (Z.of_nat n)) eqn: Hmb; simpl in *.
+          - rewrite andb_true_r in *.
+            apply IHn; auto.
+          - auto.
+        }
+      * rewrite andb_false_r in *. 
+        destruct (Z.testbit ma (Z.of_nat n)) eqn: Hma; simpl in *.
+        { rewrite andb_false_r in *.
+          inversion H.
+        }
+        { rewrite andb_true_r in *.
+          apply IHn; auto.
+        }
+Qed.
+
+Lemma sub_borrow_bit_true: forall n ma mb i j
+  (Hma : Z.testbit ma (Z.of_nat n) = false)
+  (Hmb : Z.testbit mb (Z.of_nat n) = false)
+  (Hkma : sub_borrow_bit (Z.lor i ma) (Z.land j (Z.lnot mb)) false n = true)
+  (Hkmb : sub_borrow_bit (Z.land i (Z.lnot ma)) (Z.lor j mb) false n = true),
+    sub_borrow_bit (Z.land i (Z.lnot ma)) (Z.land j (Z.lnot mb)) false n = true.
+Proof.
+  induction n; intros.
+  - simpl in *.
+    inversion Hkma.
+  - clear Hma Hmb.
+    simpl in *.
+    rewrite! Z.land_spec in *.
+    rewrite! Z.lnot_spec in * by lia.
+    rewrite! Z.lor_spec in *.
+    destruct (Z.testbit i (Z.of_nat n)) eqn: Hi; simpl in *.
+    + destruct (Z.testbit j (Z.of_nat n)) eqn: Hj; simpl in *.
+      * destruct (Z.testbit ma (Z.of_nat n)) eqn: Hma; simpl in *.
+        {
+          destruct (Z.testbit mb (Z.of_nat n)) eqn: Hmb; simpl in *.
+          2:{ auto. }
+          rewrite andb_false_r in *.
+          inversion Hkma.
+        }
+        {
+          destruct (Z.testbit mb (Z.of_nat n)) eqn: Hmb; simpl in *.
+          - rewrite andb_false_r in *.
+            inversion Hkma.
+          - rewrite andb_true_r in *.
+            apply IHn; auto.
+        }
+      * rewrite andb_false_r in *.
+        inversion Hkma.
+    + destruct (Z.testbit j (Z.of_nat n)) eqn: Hj; simpl in *.
+      * destruct (Z.testbit ma (Z.of_nat n)) eqn: Hma; simpl in *.
+        {
+          destruct (Z.testbit mb (Z.of_nat n)) eqn: Hmb; simpl in *.
+          2:{ auto. }
+          rewrite andb_false_r in *.
+          inversion Hkma.
+        }
+        {
+          destruct (Z.testbit mb (Z.of_nat n)) eqn: Hmb; simpl in *.
+          2:{ auto. }
+          rewrite andb_true_r in *.
+          clear Hkmb IHn.
+          apply sub_borrow_bit_and_not_true; auto.
+        }
+      * destruct (Z.testbit ma (Z.of_nat n)) eqn: Hma; simpl in *.
+        {
+          rewrite andb_false_r in *.
+          inversion Hkma.
+        }
+        { rewrite andb_true_r in *.
+          apply sub_borrow_bit_and_not_true; auto. 
+        }
+Qed.
+
+
+Lemma sub_borrow_bit_and_not_false: forall n i ma j mb,  
+sub_borrow_bit (Z.land i (Z.lnot ma)) (Z.lor j mb) false n = false ->
+sub_borrow_bit (Z.land i (Z.lnot ma)) (Z.land j (Z.lnot mb)) false n = false.
+Proof.
+  induction n; simpl; intros.
+  - auto.
+  - rewrite! Z.lor_spec in *.
+    rewrite! Z.land_spec in *.
+    rewrite! Z.lnot_spec in * by lia.
+    destruct (Z.testbit i (Z.of_nat n)) eqn: Hi; simpl in *.
+    + destruct (Z.testbit j (Z.of_nat n)) eqn: Hj; simpl in *.
+      * destruct (Z.testbit ma (Z.of_nat n)) eqn: Hma; simpl in *.
+        { inversion H. }
+        {
+          destruct (Z.testbit mb (Z.of_nat n)) eqn: Hmb; simpl in *.
+          - rewrite andb_false_r in *.
+            auto.
+          - rewrite andb_true_r in *.
+            apply IHn; auto.
+        }
+      * destruct (Z.testbit ma (Z.of_nat n)) eqn: Hma; simpl in *.
+        { destruct (Z.testbit mb (Z.of_nat n)) eqn: Hmb; simpl in *.
+          - inversion H.
+          - rewrite andb_true_r in *.
+            apply IHn; auto.
+        }
+        rewrite andb_false_r in *.
+        auto.
+    + destruct (Z.testbit j (Z.of_nat n)) eqn: Hj; simpl in *.
+      * inversion H.
+      * destruct (Z.testbit ma (Z.of_nat n)) eqn: Hma; simpl in *.
+        {
+          destruct (Z.testbit mb (Z.of_nat n)) eqn: Hmb; simpl in *.
+          - inversion H.
+          - rewrite andb_true_r in *.
+            apply IHn; auto.
+        }
+        {
+          destruct (Z.testbit mb (Z.of_nat n)) eqn: Hmb; simpl in *.
+          - inversion H.
+          - rewrite andb_true_r in *.
+            apply IHn; auto.
+        }
+Qed.
+
+Lemma sub_borrow_bit_false: forall n ma mb i j
+  (Hma : Z.testbit ma (Z.of_nat n) = false)
+  (Hmb : Z.testbit mb (Z.of_nat n) = false)
+  (Hkma : sub_borrow_bit (Z.lor i ma) (Z.land j (Z.lnot mb)) false n = false)
+  (Hkmb : sub_borrow_bit (Z.land i (Z.lnot ma)) (Z.lor j mb) false n = false),
+    sub_borrow_bit (Z.land i (Z.lnot ma)) (Z.land j (Z.lnot mb)) false n = false.
+Proof.
+  induction n; intros.
+  - simpl in *.
+    auto.
+  - clear Hma Hmb.
+    simpl in *.
+    rewrite! Z.land_spec in *.
+    rewrite! Z.lnot_spec in * by lia.
+    rewrite! Z.lor_spec in *.
+    destruct (Z.testbit i (Z.of_nat n)) eqn: Hi; simpl in *.
+    + destruct (Z.testbit j (Z.of_nat n)) eqn: Hj; simpl in *.
+      * destruct (Z.testbit ma (Z.of_nat n)) eqn: Hma; simpl in *.
+        {
+          inversion Hkmb.
+        }
+        {
+          destruct (Z.testbit mb (Z.of_nat n)) eqn: Hmb; simpl in *.
+          - rewrite andb_false_r in *.
+            auto.
+          - rewrite andb_true_r in *.
+            apply sub_borrow_bit_and_not_false; auto.
+        }
+      * rewrite andb_false_r in *.
+        destruct (Z.testbit ma (Z.of_nat n)) eqn: Hma; simpl in *.
+        {
+          destruct (Z.testbit mb (Z.of_nat n)) eqn: Hmb; simpl in *.
+          - inversion Hkmb.
+          - rewrite andb_true_r in *.
+            apply sub_borrow_bit_and_not_false; auto.
+        }
+        rewrite andb_false_r in *.
+        auto.
+    + destruct (Z.testbit j (Z.of_nat n)) eqn: Hj; simpl in *.
+      * inversion Hkmb.
+      * destruct (Z.testbit ma (Z.of_nat n)) eqn: Hma; simpl in *.
+        {
+          destruct (Z.testbit mb (Z.of_nat n)) eqn: Hmb; simpl in *.
+          - inversion Hkmb.
+          - rewrite andb_true_r in *.
+            apply sub_borrow_bit_and_not_false; auto.
+        }
+        {
+          destruct (Z.testbit mb (Z.of_nat n)) eqn: Hmb; simpl in *.
+          - inversion Hkmb.
+          - rewrite andb_true_r in *.
+            apply sub_borrow_bit_and_not_false; auto.
+        }
+Qed.  
+
+
+Lemma tnum_sub_eq: forall va ma vb mb i j,
+  gamma (va, ma) i ->
+  gamma (vb, mb) j ->
+  tnum_sub_easy (va, ma) (vb, mb) = tnum_sub (va, ma) (vb, mb).
+Proof.
+  intros va ma vb mb i j Hgi Hgj.
+  cbv beta delta [tnum_sub_easy tnum_sub].
+  cbv zeta.
+  f_equal.
+  apply Z.bits_inj.
+  unfold Z.eqf.
+  intro n.
+  rewrite! Z.land_spec.
+  assert (Hgi1 := Hgi).
+  assert (Hgj1 := Hgj).
+  unfold gamma in Hgi, Hgj.
+  simpl in *.
+  assert (N : n < 0 \/ n >= 0) by lia.
+  destruct N as [HN | HN].
+  - destruct n; try lia; simpl.
+    reflexivity.
+  - rewrite! Z.lnot_spec by lia.
+    rewrite! Z.lor_spec.
+    rewrite! Z.lxor_spec.
+    simpl.
+    remember (va - vb) as K eqn: HK.
+    destruct (Z.testbit ma n) eqn: Hma.
+    + rewrite orb_true_r.
+      unfold negb.
+      rewrite ! andb_false_r.
+      auto.
+    + rewrite ! orb_false_l.
+      destruct (Z.testbit mb n) eqn: Hmb; simpl.
+      * rewrite ! orb_true_r.
+        unfold negb.
+        rewrite ! andb_false_r.
+        auto.
+      * rewrite ! orb_false_r.
+        destruct (Z.testbit (K + ma) n) eqn: Hkma; simpl.
+        {
+          destruct (Z.testbit (K - mb) n) eqn: Hkmb; simpl.
+          2:{ rewrite andb_false_r. auto. }
+          symmetry.
+          rewrite andb_true_r.
+          rewrite HK in *.
+          replace (va - vb + ma) with ((va + ma) - vb) in * by lia.
+          replace (va - vb - mb) with (va - (vb + mb)) in * by lia.
+          rewrite Ztestbit_sub_sound in * by lia.
+          rewrite <- Hgi in HK, Hkma, Hkmb.
+          rewrite <- Hgj in HK, Hkma, Hkmb.
+          rewrite <- Hgi.
+          rewrite <- Hgj.
+          rewrite! Z.land_spec in *.
+          rewrite! Z.lnot_spec in * by lia.
+          rewrite Hma, Hmb in *.
+          simpl in *.
+          rewrite ! andb_true_r in *.
+          destruct (Z.testbit i n) eqn: Hi; simpl in *.
+          - rewrite Ztestbit_and_not_false in *; try assumption.
+            rewrite Hi in *.
+            simpl in *.
+            rewrite ! Zand_not_or in *.
+            destruct (Z.testbit j n) eqn: Hj; simpl in *.
+            + apply sub_borrow_bit_true; auto.
+              all: rewrite Z2Nat.id; try lia; try auto.
+            + destruct (sub_borrow_bit (Z.lor i ma) (Z.land j (Z.lnot mb)) false (Z.to_nat n)) eqn: Hsub1; [inversion Hkma| clear Hkma; rename Hsub1 into Hkma].
+              destruct (sub_borrow_bit (Z.land i (Z.lnot ma)) (Z.lor j mb) false (Z.to_nat n)) eqn: Hsub1; [inversion Hkmb| clear Hkmb; rename Hsub1 into Hkmb].
+              rewrite sub_borrow_bit_false; auto.
+              all: rewrite Z2Nat.id; try lia; try auto.
+          - rewrite Ztestbit_and_not_false in *; try assumption.
+            rewrite Hi in *.
+            simpl in *.
+            rewrite ! Zand_not_or in *.
+            destruct (Z.testbit j n) eqn: Hj; simpl in *.
+            + destruct (sub_borrow_bit (Z.lor i ma) (Z.land j (Z.lnot mb)) false (Z.to_nat n)) eqn: Hsub1; [inversion Hkma| clear Hkma; rename Hsub1 into Hkma].
+              destruct (sub_borrow_bit (Z.land i (Z.lnot ma)) (Z.lor j mb) false (Z.to_nat n)) eqn: Hsub1; [inversion Hkmb| clear Hkmb; rename Hsub1 into Hkmb].
+              rewrite sub_borrow_bit_false; auto.
+              all: rewrite Z2Nat.id; try lia; try auto.
+            + apply sub_borrow_bit_true; auto.
+              all: rewrite Z2Nat.id; try lia; try auto.
+        }
+        
+        {
+          destruct (Z.testbit (K - mb) n) eqn: Hkmb; simpl.
+          { rewrite andb_false_r. auto. }
+          symmetry.
+          rewrite andb_true_r.
+          rewrite HK in *.
+          replace (va - vb + ma) with ((va + ma) - vb) in * by lia.
+          replace (va - vb - mb) with (va - (vb + mb)) in * by lia.
+          rewrite Ztestbit_sub_sound in * by lia.
+          rewrite <- Hgi in HK, Hkma, Hkmb.
+          rewrite <- Hgj in HK, Hkma, Hkmb.
+          rewrite <- Hgi.
+          rewrite <- Hgj.
+          rewrite! Z.land_spec in *.
+          rewrite! Z.lnot_spec in * by lia.
+          rewrite Hma, Hmb in *.
+          simpl in *.
+          rewrite ! andb_true_r in *.
+          destruct (Z.testbit i n) eqn: Hi; simpl in *.
+          - rewrite Ztestbit_and_not_false in *; try assumption.
+            rewrite Hi in *.
+            simpl in *.
+            rewrite ! Zand_not_or in *.
+            destruct (Z.testbit j n) eqn: Hj; simpl in *.
+            + apply sub_borrow_bit_false; auto.
+              all: rewrite Z2Nat.id; try lia; try auto.
+            + destruct (sub_borrow_bit (Z.lor i ma) (Z.land j (Z.lnot mb)) false (Z.to_nat n)) eqn: Hsub1; [clear Hkma; rename Hsub1 into Hkma | inversion Hkma].
+              destruct (sub_borrow_bit (Z.land i (Z.lnot ma)) (Z.lor j mb) false (Z.to_nat n)) eqn: Hsub1; [clear Hkmb; rename Hsub1 into Hkmb | inversion Hkmb].
+              rewrite sub_borrow_bit_true; auto.
+              all: rewrite Z2Nat.id; try lia; try auto.
+          - rewrite Ztestbit_and_not_false in *; try assumption.
+            rewrite Hi in *.
+            simpl in *.
+            rewrite ! Zand_not_or in *.
+            destruct (Z.testbit j n) eqn: Hj; simpl in *.
+            + destruct (sub_borrow_bit (Z.lor i ma) (Z.land j (Z.lnot mb)) false (Z.to_nat n)) eqn: Hsub1; [clear Hkma; rename Hsub1 into Hkma | inversion Hkma].
+              destruct (sub_borrow_bit (Z.land i (Z.lnot ma)) (Z.lor j mb) false (Z.to_nat n)) eqn: Hsub1; [clear Hkmb; rename Hsub1 into Hkmb | inversion Hkmb].
+              rewrite sub_borrow_bit_true; auto.
+              all: rewrite Z2Nat.id; try lia; try auto.
+            + apply sub_borrow_bit_false; auto.
+              all: rewrite Z2Nat.id; try lia; try auto.
+        }
+Qed.
+
+(**r now prove the tnum_sub_sound *)
+
+Lemma tnum_sub_sound : forall a b i j,
     gamma a i ->
     gamma b j ->
     gamma (tnum_sub a b) (i-j).
@@ -1644,7 +1801,8 @@ Proof.
   destruct a as (va,ma).
   destruct b as (vb,mb).
   intros i j Hgi Hgj.
-  rewrite tnum_sub_eq with (i:=i) (j:=j) by assumption.
+  rewrite <- tnum_sub_eq with (i:=i) (j:=j) by assumption.
+  rewrite tnum_sub_easy_eq with (i:=i) (j:=j) by assumption.
   unfold gamma.
   apply Z.bits_inj.
   unfold Z.eqf.
