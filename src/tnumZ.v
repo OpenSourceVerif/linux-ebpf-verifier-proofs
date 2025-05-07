@@ -110,9 +110,26 @@ Definition tnum := (Z * Z)%type.
 Definition gamma  (a: tnum) (x: Z) : Prop :=
    (Z.land x (Z.lnot (snd a))) = (fst a).
 
-
-
 Definition wf_tnum (a: tnum): Prop := (Z.land (fst a) (snd a)) = 0.
+
+(** forall a b are generated randomly, the and+xor ensures the wf *)
+Lemma random_and_xor_valid: forall a b,
+  wf_tnum (a, Z.lxor (Z.land a b) b).
+Proof.
+  unfold wf_tnum; simpl; intros.
+  apply Z.bits_inj.
+  unfold Z.eqf.
+  simpl.  intros n.
+  assert (Hn0: n < 0 \/ n >= 0) by lia.
+  destruct Hn0.
+  - destruct n ; try lia. simpl. reflexivity.
+  - rewrite! Z.land_spec.
+    rewrite! Z.lxor_spec.
+    rewrite! Z.land_spec.
+    rewrite Z.bits_0.
+    destruct (Z.testbit a n) eqn: Ha; try auto.
+    destruct (Z.testbit b n) eqn: Hb; try auto.
+Qed.
 
 (** gamma definition implies wf *)
 Lemma gamma_imply_wf: forall va ma i,
@@ -128,6 +145,34 @@ Proof.
   apply Z.land_0_r.
 Qed.   
 
+Definition tnum_in(a b: tnum): bool :=
+  if Z.eqb (Z.land (snd b) (Z.lnot (snd a))) 0 then
+    Z.eqb (fst a) (Z.land (fst b) (Z.lnot (snd a)))
+  else
+    false.
+
+Definition xtnum_in(a b: tnum): bool :=
+  if Z.eqb (Z.land (snd b) (Z.lnot (snd a))) 0 then
+    Z.eqb (fst a) (fst b)
+  else
+    false.
+
+Lemma tnum_in_eq: forall a b i j
+  (Ha: gamma a i)
+  (Hb: gamma b j),
+  tnum_in a b = xtnum_in a b.
+Proof.
+  unfold tnum_in, gamma, xtnum_in; intros.
+  destruct a as (av, am).
+  destruct b as (bv, bm).
+  simpl in *.
+  destruct (Z.land bm (Z.lnot am) =? 0) eqn: HA; try auto.
+  rewrite Z.eqb_eq in HA.
+  destruct (av =? bv) eqn: HAB.
+  - rewrite Z.eqb_eq in *.
+    subst av bv.
+    rewrite <- HAB.
+Qed.
 
 Lemma add_lor_excl : forall x y,
     Z.land x y = 0%Z ->
