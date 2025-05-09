@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Lia.
-From bpf.src Require Import tnumZ tnumZ_sub_sound.
+From bpf.src Require Import tnumZ tnumZ_add_sound tnumZ_sub_sound.
 Import ListNotations.
 
 (*
@@ -382,10 +382,124 @@ Proof.
     destruct (Z.testbit i n) eqn: Hi1; simpl; try lia.
 Qed.
 
+Fixpoint list_eq_z_three (l l1 l2: list Z): bool :=
+  match l, l1, l2 with
+  | [], [], [] => true
+  | a::tl, a1::tl1, a2 :: tl2 =>
+    if Z.eqb a (a1 + a2) then
+      list_eq_z_three tl tl1 tl2
+    else
+      false
+  | _, _, _ => false
+  end.
+
+Lemma sum_add_split_eq: forall ls l1 l2 di d1 d2
+  (Heq: list_eq_z_three ls l1 l2 = true)
+  (Hd: di = d1 + d2),
+    (List.fold_left (fun a b => a + b) ls di) = 
+    (List.fold_left (fun a b => a + b) l1 d1) +
+    (List.fold_left (fun a b => a + b) l2 d2).
+Proof.
+  induction ls; simpl; intros.
+  - destruct l1; [| inversion Heq].
+    destruct l2; [| inversion Heq].
+    simpl.
+    lia.
+  - destruct l1 as [| a1 tl1]; [inversion Heq|].
+    destruct l2 as [| a2 tl2]; [inversion Heq|].
+    destruct (a =? a1 + a2) eqn: Ha; [| inversion Heq].
+    rewrite Z.eqb_eq in Ha.
+    assert (HE: di + a = d1 + a1 + (d2 + a2)) by lia.
+    specialize (IHls tl1 tl2 (di + a) (d1+a1) (d2+a2) Heq HE).
+    rewrite IHls.
+    simpl.
+    lia.
+Qed.
+
+Lemma list_split_exists: forall l,
+  exists l1 l2,
+    list_eq_z_three l l1 l2 = true.
+Proof.
+  induction l; simpl; intros.
+  - exists [], [].
+    auto.
+  - destruct IHl as (tl1 & tl2 & Heq).
+    exists (0::tl1), (a:: tl2).
+    simpl.
+    rewrite Z.eqb_refl.
+    auto.
+Qed.  
+
+Lemma list_fold_left_z_add_eq: forall l a b,
+  fold_left (fun a b : Z => a + b) l (a + b) = a + fold_left (fun a b : Z => a + b) l b.
+Proof.
+  induction l; simpl; intros.
+  auto.
+  specialize (IHl a0 (b+a)).
+  rewrite Z.add_assoc in IHl.
+  auto.
+Qed.
+
+Lemma value_mask_decompose_tnum_sum_1_2: forall l lv lm ls d di ls_l1 ls_l2
+  (Hge: 0 <= di)
+  (Hd : gamma d di)
+  (Hg : forall (a : tnum) (i : Z), In (a, i) l -> gamma a i /\ 0 <= i)
+  (Hv : lv = map (fun a : Z * Z * Z => (fst (fst a), 0)) l)
+  (Hm : lm = map (fun a : Z * Z * Z => (0, snd (fst a))) l)
+  (Hs : ls = map (fun a : tnum * Z => snd a) l)
+  (Hls_eq : list_eq_z_three ls ls_l1 ls_l2 = true),
+    exists d1 d2,
+      di = d1 + d2 /\
+      gamma (tnum_add_sum lv (fst d, 0)) (fold_left (fun a b : Z => a + b) ls_l1 d1) /\
+      gamma (tnum_add_sum lm (0, snd d)) (fold_left (fun a b : Z => a + b) ls_l2 d2).
+Proof.
+  induction l as [| a l].
+  { 
+    simpl; intros; subst.
+    destruct ls_l1.
+    2: { destruct ls_l2; inversion Hls_eq. }
+    destruct ls_l2; [| inversion Hls_eq].
+    unfold tnum_add_sum; simpl.
+    apply value_mask_decompose_a_tnum; auto.
+  }
+  simpl; intros; subst.
+  destruct a as ((av & am) & i).
+  destruct ls_l1 as [| a1 ls_tl1].
+  { destruct ls_l2; inversion Hls_eq. }
+  destruct ls_l2 as [| a2 ls_tl2].
+  { inversion Hls_eq. }
+  simpl in *.
+  destruct (i =? a1 + a2) eqn: Hls_12_eq; [| inversion Hls_eq].
+  rewrite Z.eqb_eq in Hls_12_eq.
+  apply IHl with
+    (lv := map (fun a : Z * Z * Z => (fst (fst a), 0)) l)
+    (lm := map (fun a : Z * Z * Z => (0, snd (fst a))) l)
+    (d := d) (di := di) in Hls_eq; auto.
+  destruct Hls_eq as (td1 & td2 & Hdi_eq & Hls_eq1 & Hls_eq2).
+
+  assert (Heq: (av, am, i) = (av, am, i) \/ In (av, am, i) l) by auto.
+  specialize (Hg _ _ Heq); clear Heq.
+  destruct Hg as (Hg & Hi_ge).
+  pose proof (value_mask_decompose_a_tnum _ _ Hi_ge Hg) as Hi_eq.
+  simpl in Hi_eq.
+  destruct Hi_eq as (i1 & i2 & Hi_eq & Hgi1_eq& Hgi2_eq).
+  exists (i1 + td1 - a1), (i2 + td2 - a2).
+  rewrite ! Z.sub_add.
+  split; [lia | ].
+  split.
+  - pose proof (list_fold_left_z_add_eq ls_tl1 i1 td1) as Heq.
+    rewrite Heq; clear Heq.
+    apply tnum_add_sound; auto.
+  - pose proof (list_fold_left_z_add_eq ls_tl2 i2 td2) as Heq.
+    rewrite Heq; clear Heq.
+    apply tnum_add_sound; auto.
+Qed.
+
 (**r Lemma 9 *)
 Lemma value_mask_decompose_tnum_sum: forall l lv lm ls d di
+  (Hge: 0 <= di)
   (Hd: gamma d di)
-  (Hg: forall a i, List.In (a,i) l -> gamma a i)
+  (Hg: forall a i, List.In (a,i) l -> gamma a i /\ 0 <= i)
   (Hv: lv = List.map (fun a => (fst (fst a), 0)) l) (**r sum_0_n-1 (Tj.v, 0) *)
   (Hm: lm = List.map (fun a => (0, snd (fst a))) l) (**r sum_0_n-1 (0, Tj.m) *)
   (Hs: ls = List.map (fun a => snd a) l)
@@ -394,38 +508,20 @@ Lemma value_mask_decompose_tnum_sum: forall l lv lm ls d di
       tnum_add (tnum_add_sum lv (fst d, 0)) (tnum_add_sum lm (0, snd d)))
       (List.fold_left (fun a b => a + b) ls di). (**r sum_0_n-1 S *)
 Proof.
-  induction l.
-  { 
-    simpl; intros; subst.
-    unfold tnum_add_sum; simpl.
-    apply tnum_add_decompose; auto.
-  }
-  simpl; intros; subst.
-  destruct a as ((av, am), i).
-  simpl in *.
-  remember (map (fun a : Z * Z * Z => (fst (fst a), 0)) l) as lv eqn: Hlv.
-  remember (map (fun a : Z * Z * Z => (0, snd (fst a))) l) as lm eqn: Hlm.
-  remember (map (fun a : tnum * Z => snd a) l) as ls eqn: Hls.
- ../..
-  assert (Hgi: gamma (av, am) i). {
-    apply Hg.
-    auto.
-  }
-
-  (Hgi : gamma (av, am) i)
-  (Hgd : gamma d di)
-  (HG: gamma (tnum_add (tnum_add_sum lv0 (fst d, 0))
-                       (tnum_add_sum lm0 (0, snd d)))
-             (fold_left (fun a b : Z => a + b) ls0 di)),
-      gamma (tnum_add (tnum_add (av, 0) (tnum_add_sum lv (fst d, 0)))
-                      (tnum_add (0, am) (tnum_add_sum lm (0, snd d))))
-            (fold_left (fun a b : Z => a + b) ls (di + i)).
-
-  unfold tnum_add_sum in *; simpl.
   intros.
+  pose proof (list_split_exists ls) as Hls_eq.
+  destruct Hls_eq as (ls_l1 & ls_l2 & Hls_eq).
 
+  pose proof (value_mask_decompose_tnum_sum_1_2 l lv lm ls d di ls_l1 ls_l2 Hge Hd Hg Hv Hm Hs Hls_eq) as Hi_eq.
+  destruct Hi_eq as (i1 & i2 & Hi_eq & Hgi1_eq& Hgi2_eq).
+
+  pose proof (sum_add_split_eq _ _ _ di _ _ Hls_eq Hi_eq) as Hls_sum.
+  rewrite Hls_sum.
+  
+  apply tnum_add_sound; auto.
 Qed.
 
+../.. 
 Lemma value_mask_decompose_tnum_sum: forall n va ma vb mb i j acc_v acc_m
   (Hgi: gamma (va, ma) i)
   (Hgj: gamma (vb, mb) j)
