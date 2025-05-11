@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Lia.
-From bpf.src Require Import tnumZ tnumZ_add_sound tnumZ_sub_sound.
+From bpf.src Require Import tnumZ tnumZ_add_sound tnumZ_sub_sound tnumZ_shift_sound.
 Import ListNotations.
 
 (*
@@ -233,15 +233,6 @@ Proof.
     destruct (Z.testbit ma n); try auto.
 Qed.
 
-Lemma tnum_add_0: forall a,
-  tnum_add (0, 0) a = tnum_add a (0, 0).
-Proof.
-  unfold tnum_add; destruct a as (av, am); simpl; intros.
-  rewrite ! Z.add_0_r.
-  rewrite ! Z.lor_0_r. 
-  f_equal.
-Qed.
-
 Definition tnum_add_sum (l: list tnum) (d: tnum): tnum := (**default = (0, 0) *)
   List.fold_right (fun a b => tnum_add a b) d l.
 
@@ -251,6 +242,18 @@ Proof.
   unfold tnum_add_sum; induction l; simpl; intros.
   - auto.
   - rewrite <- IHl.
+    simpl.
+    rewrite tnum_add_comm.
+    auto.
+Qed.
+
+Lemma tnum_add_sum_tail: forall l a d,
+  tnum_add_sum (l++[a]) d = (tnum_add_sum l (tnum_add a d)).
+Proof.
+  unfold tnum_add_sum; induction l as [| t tl]; simpl; intros.
+  - auto.
+  - rewrite <- IHtl.
+    rewrite ! fold_right_app.
     simpl.
     auto.
 Qed.
@@ -495,7 +498,7 @@ Proof.
     apply tnum_add_sound; auto.
 Qed.
 
-(**r Lemma 9 *)
+(**r [Lemma 9] Value-mask-decomposed tnum summations*)
 Lemma value_mask_decompose_tnum_sum: forall l lv lm ls d di
   (Hge: 0 <= di)
   (Hd: gamma d di)
@@ -521,12 +524,306 @@ Proof.
   apply tnum_add_sound; auto.
 Qed.
 
-../.. 
-Lemma value_mask_decompose_tnum_sum: forall n va ma vb mb i j acc_v acc_m
-  (Hgi: gamma (va, ma) i)
-  (Hgj: gamma (vb, mb) j)
-  (Hacc: tnum_mul_simple_rec n (va, ma) (vb, mb) = (acc_v, acc_m)),
-    gamma (tnum_add acc_v acc_m) (zmul_bits_pos i j n).
+Fixpoint concrete_product (n: nat) (x y: Z): list Z :=
+  match n with
+  | O => []
+  | S n1 =>
+    let xn := if Z.testbit x (Z.of_nat n) then 1 else 0 in
+    let zn := Z.shiftl (xn * y) (Z.of_nat n) in
+    (concrete_product n1 x y) ++ [zn]
+  end.
+
+
+Fixpoint gamma_list (v: list Z) (l: list tnum): Prop :=
+  match v, l with
+  | [], [] => True
+  | va::vtl, a::tl => gamma a va /\ gamma_list vtl tl
+  | _, _ => False
+  end.
+
+Lemma gamma_list_imply: forall l
+  (Hg: forall a i, List.In (a,i) l -> gamma a i /\ 0 <= i),
+    gamma_list (List.map snd l) (List.map fst l).
+Proof.
+  induction l; simpl; intros.
+  auto.
+
+  split.
+  - assert (Heq: a = (fst a, snd a) \/ In (fst a, snd a) l).
+    + left.
+      destruct a; auto.
+    + specialize (Hg (fst a) (snd a) Heq); clear Heq.
+      destruct Hg as (Hg & _); auto.
+  - apply IHl.
+    intros a0 i Hin.
+    apply Hg.
+    right; auto.
+Qed.
+
+Lemma gamma_list_app: forall l1 l2 l3 l4,
+  gamma_list l1 l2 ->
+  gamma_list l3 l4 ->
+    gamma_list (l1 ++ l3) (l2 ++ l4).
+Proof.
+  induction l1; simpl; intros.
+  - destruct l2; inversion H.
+    simpl.
+    auto.
+  - destruct l2 as [| a2 tl2]; [ inversion H|].
+    destruct H as (Ha2 & Htl2).
+    simpl.
+    split; auto.
+Qed.
+
+Lemma gamma_list_tail_if: forall l1 l2 a b,
+  gamma_list l1 l2 /\ gamma b a ->
+    gamma_list (l1 ++ [a]) (l2 ++ [b]).
+Proof.
+  induction l1; simpl; intros.
+  - destruct l2; simpl; inversion H.
+    + split; auto.
+    + destruct H as (H & _); inversion H.
+  - destruct l2 as [| a2 tl2]; simpl in *; [ inversion H|].
+    + destruct H as (H & _); inversion H.
+    + destruct H as ((Ha2 & H) & Ha0).
+      split; auto.
+Qed.
+
+Lemma gamma_list_tail_only_if: forall l1 l2 a b,
+  gamma_list (l1 ++ [a]) (l2 ++ [b]) ->
+    gamma_list l1 l2 /\ gamma b a.
+Proof.
+  induction l1; simpl; intros.
+  - destruct l2; simpl; inversion H.
+    + split; auto.
+    + destruct l2; simpl; inversion H1.
+  - destruct l2 as [| a2 tl2]; simpl in *; [ inversion H|].
+    + destruct l1; simpl; inversion H1.
+    + destruct H as (Ha2 & H).
+      apply IHl1 in H.
+      destruct H as (Hl1 & Ha0).
+      repeat split; auto.
+Qed.
+
+Lemma gamma_list_tail_iff: forall l1 l2 a b,
+  gamma_list l1 l2 /\ gamma b a <->
+    gamma_list (l1 ++ [a]) (l2 ++ [b]).
+Proof.
+  split.
+  apply gamma_list_tail_if.
+  apply gamma_list_tail_only_if.
+Qed.
+
+Lemma value_mask_decompose_sum_1: forall n a b x y
+  (Hgx: gamma a x)
+  (Hgy: gamma b y),
+  exists l,
+    (List.map snd l) = (concrete_product n x y) /\
+    gamma_list (List.map snd l) (List.map fst l).
+Proof.
+  induction n; intros.
+  { exists []; simpl. auto. }
+
+  remember (Z.shiftl
+      ((if Z.testbit x (Z.of_nat (S n)) then 1 else 0) * y) (Z.of_nat (S n)))
+      as res eqn: Hres.
+  replace (concrete_product (S n) x y) with
+    ((concrete_product n x y) ++ [res]).
+  2:{ simpl; subst; auto. }
+
+  specialize (IHn a b x y Hgx Hgy).
+  destruct IHn as (l1 & Hl & Hg).
+  rewrite <- Hl.
+
+  destruct (Z.testbit x (Z.of_nat (S n))) eqn: Hx.
+  - remember (tnum_lshift b (Z.of_nat (S n))) as Q eqn: HQ.
+    assert (Heq: gamma Q res).
+    { subst.
+      apply tnum_lshift_sound.
+      rewrite Z.mul_1_l.
+      auto.
+    }
+    exists (l1 ++ [(Q, res)]).
+    split.
+    + rewrite map_last.
+      simpl; auto.
+    + rewrite ! map_app.
+      simpl.
+      apply gamma_list_app; auto.
+      simpl.
+      split; auto.
+  - rewrite Z.mul_0_l in Hres.
+    rewrite Z.shiftl_0_l in Hres.
+    subst res.
+    exists (l1 ++ [((0, 0), 0)]).
+    split.
+    + rewrite map_last.
+      simpl; auto.
+    + rewrite ! map_app.
+      simpl.
+      apply gamma_list_app; auto.
+      simpl.
+      split; auto.
+      unfold gamma.
+      simpl.
+      auto.
+Qed.
+
+Lemma map_snd_app: forall l2 l res,
+  map snd l = l2 ++ [res] ->
+  exists (l1 : list (tnum * Z)) (k : tnum * Z),
+    l = l1 ++ [k] /\ map snd l1 = l2 /\ snd k = res.
+Proof.
+  induction l2; simpl; intros.
+  { destruct l; inversion H.
+    destruct l; inversion H2.
+    exists [],  p.
+    simpl; auto.
+  }
+
+  destruct l as [| a1 tl].
+  {
+    simpl in H.
+    inversion H.
+  }
+
+  simpl in H.
+  inversion H.
+  apply IHl2 in H2.
+  destruct H2 as (tl1 & tk & Heq1 & Heq2 & Heq3).
+  exists (a1:: tl1), tk.
+  subst.
+  simpl; auto.
+Qed.
+
+Lemma value_mask_decompose_sum_2: forall n a b x y l acc_v acc_m d f
+  (Hgx: gamma a x)
+  (Hgy: gamma b y)
+  (Hacc: tnum_mul_simple_rec n a b d f = (acc_v, acc_m))
+
+  (Hl_eq: List.map snd l = (concrete_product n x y))
+  (Hgl: gamma_list (List.map snd l) (List.map fst l))
+  
+  ,
+    acc_v = (tnum_add_sum
+              (List.map (fun a => (fst (fst a), 0)) l) (**r sum_0_n-1 (Tj.v, 0) *)
+              d).
+Proof.
+  induction n; intros.
+  { simpl in *. inversion Hacc; subst.
+    destruct l; inversion Hl_eq.
+    simpl.
+    auto.
+  }
+
+  destruct a as (va, ma).
+  destruct b as (vb, mb).
+
+  remember (Z.shiftl
+      ((if Z.testbit x (Z.of_nat (S n)) then 1 else 0) * y) (Z.of_nat (S n)))
+      as res eqn: Hres.
+  replace (concrete_product (S n) x y) with
+    ((concrete_product n x y) ++ [res]) in Hl_eq.
+  2:{ simpl; subst; auto. }
+  simpl in Hacc.
+
+  destruct (tnum_mul_simple_rec n _ _ _ _)
+     as (acc_v1, acc_m1)  eqn: Hmul.
+    
+  destruct (Z.land va 1 =? 1) eqn: Hknown; [
+    rewrite Z.eqb_eq in Hknown |
+    rewrite Z.eqb_neq in Hknown
+  ].
+  - (* x[j] is a known 1 *)
+    inversion Hacc.
+    rename H0 into Hacc_v.
+    rename H1 into Hacc_m.
+    clear Hacc.
+
+    assert (Heq: exists l1 k, l = l1 ++ [k] /\ map snd l1 = concrete_product n x y /\
+      snd k = res). {
+      clear - Hl_eq.
+      destruct l as [| a1 tl].
+      - simpl in Hl_eq.
+        exfalso.
+        assert (Hnil: forall l (r: Z), l ++ [r] <> []). {
+          clear.
+          destruct l; simpl; intros.
+          - intros HF. inversion HF.
+          - intros HF. inversion HF.
+        }
+        eapply Hnil; eauto.
+      - apply map_snd_app; auto.
+    }
+    destruct Heq as (l1 & k & Hl1_eq & Hl1_map & Hk_eq).
+    subst l.
+    rewrite ! map_last in Hgl.
+    rewrite <- gamma_list_tail_iff in Hgl.
+    destruct Hgl as (Hgl1 & Hgk).
+    rewrite ! map_last in Hl_eq.
+    rewrite app_inj_tail_iff in Hl_eq.
+    destruct Hl_eq as (Hl1_eq & Hk2).
+
+    rewrite ! map_last.
+    rewrite tnum_add_sum_tail. ../..
+    eapply IHn with (x := Z.shiftr x 1) (y := Z.shiftl y 1) (l := l1) in Hmul; eauto.
+Qed.  
+
+(**r [Property P2.] ACCV and ACCM are value-mask-decomposed summations of partial products. *)
+Lemma value_mask_decompose_sum: forall n va ma vb mb x y acc_v acc_m d f di fi
+  (Hgd: 0 <= di)
+  (Hd: gamma d di)
+  (Hgf: 0 <= fi)
+  (Hf: gamma f fi)
+
+  (Hgx: gamma (va, ma) x)
+  (Hgy: gamma (vb, mb) y)
+  (Hacc: tnum_mul_simple_rec n (va, ma) (vb, mb) d f = (acc_v, acc_m)),
+  exists l,
+    (List.map snd l) = (concrete_product n x y) /\
+    gamma_list (List.map snd l) (List.map fst l) /\
+    acc_v = (tnum_add_sum
+              (List.map (fun a => (fst (fst a), 0)) l) (**r sum_0_n-1 (Tj.v, 0) *)
+              d) /\
+    acc_m = (tnum_add_sum
+              (List.map (fun a => (0, snd (fst a))) l) (**r sum_0_n-1 (0, Tj.m) *)
+              f).
+Proof.
+  induction n; intros.
+  - exists [].
+    simpl in *.
+    inversion Hacc.
+    repeat split; auto.
+  - simpl in Hacc.
+    remember (Z.shiftl
+        ((if Z.testbit x (Z.of_nat (S n)) then 1 else 0) * y) (Z.of_nat (S n)))
+        as res eqn: Hres.
+    replace (concrete_product (S n) x y) with
+      ((concrete_product n x y) ++ [res]).
+    2:{ simpl; subst; auto. }
+    
+    destruct (tnum_mul_simple_rec n (tnum_rshift (va, ma) 1) (tnum_lshift (vb, mb) 1) d f)
+     as (acc_v1, acc_m1)  eqn: Hmul.
+    
+    destruct (Z.land va 1 =? 1) eqn: Hknown; [
+      rewrite Z.eqb_eq in Hknown |
+      rewrite Z.eqb_neq in Hknown
+    ].
+    + (* x[j] is a known 1 *)
+      inversion Hacc.
+      rename H0 into Hacc_v.
+      rename H1 into Hacc_m.
+      clear Hacc.
+      apply IHn with (x := x) (y := y) (di := di)(fi := fi) in Hmul; auto.
+    +
+    
+    rewrite Z.shiftl_mul_pow2; [| lia].
+    rewrite <- two_p_equiv.
+    Search (two_p  _).
+    unfold Z.testbit, Z.of_nat.
+    destruct n; simpl; auto.
+    destruct x; simpl; auto. 
+    Search Z.shiftl. unfold Z.shiftl, Z.testbit; simpl. }
 (*
 Lemma tnum_mul_simple_rec_0: forall n ma vb mb v m
   (HM: tnum_mul_simple_rec n (0, ma) (vb, mb) = (v, m)),

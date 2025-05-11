@@ -170,14 +170,14 @@ Definition tnum_mul (a b: tnum): tnum :=
   let acc_m := tnum_mul_rec n a b in
     tnum_add acc_v acc_m.
 
-Fixpoint tnum_mul_simple_rec (fuel: nat) (a b: tnum): tnum * tnum :=
+Fixpoint tnum_mul_simple_rec (fuel: nat) (a b d f: tnum): tnum * tnum :=
   match fuel with
-  | O => ((0, 0), (0, 0))
+  | O => (d, f)
   | S n =>
     let c1 := Z.eqb (Z.land (fst a) 1) 1 in
     let c2 := Z.eqb (Z.land (snd a) 1) 1 in
     let (acc_v, acc_m) :=
-      tnum_mul_simple_rec n (tnum_rshift a 1) (tnum_lshift b 1) in
+      tnum_mul_simple_rec n (tnum_rshift a 1) (tnum_lshift b 1) d f in
       if c1 then
       (tnum_add acc_v (fst b, 0), tnum_add acc_m (0, snd b))
       else
@@ -189,5 +189,5 @@ Fixpoint tnum_mul_simple_rec (fuel: nat) (a b: tnum): tnum * tnum :=
 
 Definition tnum_mul_simple (a b: tnum): tnum :=
   let n := tnum_num_bits a in
-  let (acc_v, acc_m) := tnum_mul_simple_rec n a b in
+  let (acc_v, acc_m) := tnum_mul_simple_rec n a b (0, 0) (0, 0) in
     tnum_add acc_v acc_m.

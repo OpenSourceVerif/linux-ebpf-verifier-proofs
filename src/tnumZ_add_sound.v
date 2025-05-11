@@ -1,6 +1,32 @@
 From Coq Require Import ZArith Bool Lia Btauto.
 From bpf.src Require Import Zmore tnumZ.
 
+Lemma tnum_add_0: forall a,
+  tnum_add (0, 0) a = tnum_add a (0, 0).
+Proof.
+  unfold tnum_add; destruct a as (av, am); simpl; intros.
+  rewrite ! Z.add_0_r.
+  rewrite ! Z.lor_0_r. 
+  f_equal.
+Qed.
+
+Lemma tnum_add_comm: forall a b,
+  tnum_add a b = tnum_add b a.
+Proof.
+  unfold tnum_add; simpl.
+  intros.
+  replace (fst a + fst b) with (fst b + fst a) by lia.
+  f_equal.
+  - do 3 f_equal.
+    + f_equal.
+      lia.
+    + apply Z.lor_comm.
+  - f_equal.
+    + f_equal.
+      lia.
+    + apply Z.lor_comm.
+Qed.
+
 (** [add_carry_bit x y c n] computes the nth carry bit
     of the addition of x + y + c *)
 Fixpoint add_carry_bit (x y : Z) (c:bool) (n:nat) :=

@@ -105,7 +105,7 @@ Proof.
     cbv zeta.
     rewrite (decomp x) at 2.
     rewrite (decomp y) at 2.
-    rewrite! Z.testbit_succ_r by lia.
+    rewrite! Z.testbit_succ_r by lia. 
     rewrite sub_shift.
     rewrite sub_shift.
     rewrite b2z_div2.
