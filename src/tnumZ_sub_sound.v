@@ -407,12 +407,6 @@ Proof.
   reflexivity.
 Qed.
 
-Lemma Zsub_borrow_bit_0 : forall x y z,
-    sub_borrow_bit x y z 0 = z.
-Proof.
-  reflexivity.
-Qed.
-
 Lemma sub_borrow_bit_zero : forall n x,
 sub_borrow_bit x 0 false n = false.
 Proof.
@@ -466,23 +460,6 @@ Proof.
 Qed.
 
 (**prove the tnum_sub_eq firstly *)
-
-Lemma add_carry_bit_and_not_false: forall n mb j,
-    add_carry_bit (Z.land j (Z.lnot mb)) mb false n = false.
-Proof.
-  induction n; intros.
-  - simpl; auto.
-  - simpl.
-    rewrite IHn.
-    rewrite andb_false_l.
-    rewrite orb_false_r.
-    rewrite! Z.land_spec.
-    rewrite! Z.lnot_spec by lia.
-    rewrite <- andb_assoc.
-    rewrite andb_negb_l.
-    rewrite andb_false_r.
-    auto.
-Qed.
 
 Lemma Ztestbit_and_not_false: forall mb n j
   (HN: n >= 0)
@@ -929,4 +906,16 @@ Proof.
        rewrite! Z.land_spec.
        rewrite! Z.lnot_spec by lia.
        btauto.
+Qed.
+
+
+
+Lemma sub_borrow_bit_and_not_false_false: forall n i am,
+    sub_borrow_bit i (Z.land i (Z.lnot am)) false n = false.
+Proof.
+  induction n; intros; simpl; auto.
+  rewrite IHn; try lia.
+  rewrite! Z.land_spec.
+  rewrite! Z.lnot_spec by lia.
+  destruct (Z.testbit i _); simpl; try lia.
 Qed.

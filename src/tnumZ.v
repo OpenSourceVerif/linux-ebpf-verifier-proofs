@@ -146,7 +146,7 @@ Definition tnum_rshift (a: tnum) (shift: Z): tnum :=
 
 Definition Z_size (x: Z) : nat :=
   match x with
-  | Zpos p => Pos.to_nat (Pos.size p)
+  | Zpos p | Zneg p => Pos.to_nat (Pos.size p)
   | _ => 0
   end.
 
@@ -176,18 +176,14 @@ Fixpoint tnum_mul_simple_rec (fuel: nat) (a b d f: tnum): tnum * tnum :=
   | S n =>
     let c1 := Z.eqb (Z.land (fst a) 1) 1 in
     let c2 := Z.eqb (Z.land (snd a) 1) 1 in
-    let (acc_v, acc_m) :=
-      tnum_mul_simple_rec n (tnum_rshift a 1) (tnum_lshift b 1) d f in
-      if c1 then
-      (tnum_add acc_v (fst b, 0), tnum_add acc_m (0, snd b))
-      else
-        (acc_v, if c2 then
-            tnum_add acc_m (0, Z.lor (fst b) (snd b))
-          else
-            acc_m)
+    let acc_v := if c1 then tnum_add d (fst b, 0) else d in
+    let acc_m := if c1 then tnum_add f (0, snd b)
+                  else if c2 then tnum_add f (0, Z.lor (fst b) (snd b))
+                  else f in
+      tnum_mul_simple_rec n (tnum_rshift a 1) (tnum_lshift b 1) acc_v acc_m
   end.
 
-Definition tnum_mul_simple (a b: tnum): tnum :=
-  let n := tnum_num_bits a in
-  let (acc_v, acc_m) := tnum_mul_simple_rec n a b (0, 0) (0, 0) in
+Definition tnum_mul_simple (a b: tnum) (width: nat): tnum :=
+  (*let n := tnum_num_bits a in *)
+  let (acc_v, acc_m) := tnum_mul_simple_rec width a b (0, 0) (0, 0) in
     tnum_add acc_v acc_m.

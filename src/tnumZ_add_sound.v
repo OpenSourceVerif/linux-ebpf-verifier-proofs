@@ -1,15 +1,6 @@
 From Coq Require Import ZArith Bool Lia Btauto.
 From bpf.src Require Import Zmore tnumZ.
 
-Lemma tnum_add_0: forall a,
-  tnum_add (0, 0) a = tnum_add a (0, 0).
-Proof.
-  unfold tnum_add; destruct a as (av, am); simpl; intros.
-  rewrite ! Z.add_0_r.
-  rewrite ! Z.lor_0_r. 
-  f_equal.
-Qed.
-
 Lemma tnum_add_comm: forall a b,
   tnum_add a b = tnum_add b a.
 Proof.
@@ -325,4 +316,88 @@ Proof.
        rewrite! Z.land_spec.
        rewrite! Z.lnot_spec by lia.
        btauto.
+Qed.
+
+Lemma add_carry_bit_comm : forall n a b c,
+  add_carry_bit a b c n = add_carry_bit b a c n.
+Proof.
+  induction n; intros.
+  - simpl; auto.
+  - simpl.
+    rewrite IHn.
+    rewrite xorb_comm.
+    rewrite andb_comm.
+    auto.
+Qed.
+
+Lemma add_carry_bit_and_not_false: forall n mb j,
+    add_carry_bit (Z.land j (Z.lnot mb)) mb false n = false.
+Proof.
+  induction n; intros.
+  - simpl; auto.
+  - simpl.
+    rewrite IHn.
+    rewrite andb_false_l.
+    rewrite orb_false_r.
+    rewrite! Z.land_spec.
+    rewrite! Z.lnot_spec by lia.
+    rewrite <- andb_assoc.
+    rewrite andb_negb_l.
+    rewrite andb_false_r.
+    auto.
+Qed.
+
+Lemma tnum_add_0: forall a i,
+  gamma a i ->
+  tnum_add (0, 0) a = a.
+Proof.
+  unfold tnum_add, gamma; destruct a as (av, am); simpl; intros.
+  subst av.
+  f_equal.
+  - apply Z.bits_inj.
+    unfold Z.eqf.
+    intro n.
+    assert (N : n < 0 \/ n >= 0) by lia.
+    destruct N as [HN | HN]; [destruct n; try lia; simpl; reflexivity | ].
+    rewrite! Z.land_spec.
+    rewrite! Z.lnot_spec by lia.
+    rewrite! Z.lor_spec.
+    rewrite! Z.lxor_spec.
+    destruct (Z.testbit i n) eqn: Hi; simpl; auto.
+    unfold negb, xorb.
+    rewrite Ztestbit_add_sound; try lia.
+    destruct (Z.testbit am n) eqn: Ham; simpl; auto.
+    rewrite! Z.land_spec.
+    rewrite! Z.lnot_spec by lia.
+    rewrite Hi, Ham.
+    simpl.
+    rewrite orb_false_r.
+    rewrite add_carry_bit_comm.
+    rewrite add_carry_bit_and_not_false.
+    auto.
+  - apply Z.bits_inj.
+    unfold Z.eqf.
+    intro n.
+    assert (N : n < 0 \/ n >= 0) by lia.
+    destruct N as [HN | HN]; [destruct n; try lia; simpl; reflexivity | ].
+    rewrite! Z.lor_spec.
+    rewrite! Z.lxor_spec.
+    rewrite! Z.land_spec.
+    rewrite! Z.lnot_spec by lia.
+    rewrite Ztestbit_add_sound; try lia.
+    rewrite! Z.land_spec.
+    rewrite! Z.lnot_spec by lia.
+    destruct (Z.testbit am n) eqn: Ham; simpl; auto.
+    + rewrite orb_true_r.
+      auto.
+    + rewrite orb_false_r.
+      rewrite andb_true_r.
+      unfold xorb.
+      destruct (Z.testbit i n) eqn: Hi; simpl; auto.
+      * rewrite add_carry_bit_comm.
+        rewrite add_carry_bit_and_not_false.
+        auto.
+      * rewrite add_carry_bit_comm.
+        rewrite add_carry_bit_and_not_false.
+        auto.
 Qed.

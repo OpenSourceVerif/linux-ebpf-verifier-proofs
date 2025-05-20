@@ -457,3 +457,54 @@ Ltac evalt :=
       |   _  => fail
       end
   end.  
+
+Lemma pos_land_le: forall p p0,
+  Z.of_N (Pos.land p p0) <= Z.pos p.
+Proof.
+  induction p; simpl; intros; try lia.
+  - destruct p0; try lia.
+    + specialize (IHp p0). lia.
+    + specialize (IHp p0). lia.
+  - destruct p0; try lia.
+    + specialize (IHp p0). lia.
+    + specialize (IHp p0). lia.
+  - destruct p0; try lia.
+Qed.
+
+Lemma pos_pred_n_diff_le: forall p p0,
+    Z.of_N (Pos.ldiff p p0) <= Z.pos p.
+Proof.
+  induction p; simpl; intros; try lia.
+  - destruct p0; try lia.
+    + specialize (IHp p0). lia.
+    + specialize (IHp p0). lia.
+  - destruct p0; try lia.
+    + specialize (IHp p0). lia.
+    + specialize (IHp p0). lia.
+  - destruct p0; try lia.
+Qed.
+
+Lemma Z_land_leb: forall i j,
+  0 <= i ->
+  Z.land i j <= i.
+Proof.
+  unfold Z.land.
+  destruct i; simpl; intros; try lia.
+  destruct j; try lia.
+  - apply pos_land_le.
+  - destruct (Pos.pred_N p0) eqn: Hp0; try lia.
+    apply pos_pred_n_diff_le.
+Qed.
+
+Lemma Z_land_1_eq: forall i,
+  Z.land i 1 = 0 \/ Z.land i 1 = 1.
+Proof.
+  intros.
+  assert (Heq: 0 <= 1) by lia.
+  eapply Z_land_leb with (j := i) in Heq as Hg; eauto.
+
+  assert (Hor: 0 <= 1 \/ 0 <= i) by lia.
+  rewrite <- Z.land_nonneg in Hor.
+  rewrite Z.land_comm.
+  lia.
+Qed.
