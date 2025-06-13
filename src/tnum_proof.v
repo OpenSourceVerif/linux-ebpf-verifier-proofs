@@ -1,7 +1,7 @@
 From Coq Require Import List ZArith Lia.
 From compcert.lib Require Import Integers.
 (*From bpf.src Require Import tnum. *)
-Require Import tnumZ.
+Require Import tnumZ tnumZ_add_sound.
 Require Import tnum.
 
 Import ListNotations.
@@ -253,7 +253,7 @@ Proof.
   intros.
   apply tnum_binary_sound with (tnum_fz := tnumZ.tnum_add) (fz:= Z.add); auto.
   - intros.
-    apply tnumZ.tnum_add_sound; auto.
+    apply tnumZ_add_sound.tnum_add_sound; auto.
   - intros.
     apply testbit_add ; auto.
   - apply tnum_add_eq.

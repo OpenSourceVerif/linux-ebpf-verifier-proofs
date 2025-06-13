@@ -118,7 +118,7 @@ Definition tnum_mul (a b: tnum): tnum :=
   let acc_v := Int64.mul (fst a) (fst b) in
   let acc_m := (Int64.zero, Int64.zero) in
   let res := tnum_mul_rec a b 64 acc_m in
-    tnum_add (acc_v, Int64.zero) acc_m.
+    tnum_add (acc_v, Int64.zero) res.
 
 Definition tnum_intersect (a b: tnum): tnum :=
   let v   := Int64.xor (fst a) (fst b) in
