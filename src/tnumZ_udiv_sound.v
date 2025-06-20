@@ -2,15 +2,6 @@ From Coq Require Import List ZArith Lia.
 From bpf.src Require Import Zmore tnumZ tnumZ_inv tnumZ_add_sound tnumZ_sub_sound tnumZ_shift_sound.
 Import ListNotations.
 
-Lemma Z_ldiff_ones n x : 
-  0 <= n -> Z.ldiff x (Z.ones n) = 0 <-> (0 <= x <= Z.ones n).
-Proof.
-  intros. split.
-  - apply Z.ldiff_le; rewrite Z.ones_equiv.
-    apply Z.lt_le_pred, Z.pow_pos_nonneg. lia. apply H.
-  - intros; destruct H0.
-Admitted.
-
 Lemma tnum_udiv_sound : forall a b i j
   (Ha_inv: tnum_ge_inv a)
   (Hb_inv: tnum_ge_inv b)

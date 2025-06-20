@@ -26,8 +26,12 @@ Proof.
   destruct Hinv as [Hinv0 Hinv1].  
   split.
   - rewrite <- Hgamma. unfold gamma. apply (Z_land_leb i _ H).
-  - 
-Admitted.
+  - unfold gamma in Hgamma.
+    rewrite (Z_lor_recompose i (snd a)). rewrite <- add_lor_excl.
+    + rewrite Hgamma; apply Zplus_le_compat_l.
+      rewrite Z.land_comm; apply Z_land_leb, Hinv1.
+    + apply Z_land_disjoint.
+Qed.
 
 Lemma tnum_ge_inv_add: forall a b,
   tnum_ge_inv a ->

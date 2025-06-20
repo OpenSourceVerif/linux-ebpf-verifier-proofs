@@ -124,6 +124,41 @@ Proof.
   reflexivity.
 Qed.
 
+Lemma Z_lor_recompose : forall x y,
+  x = Z.lor (Z.land x (Z.lnot y)) (Z.land x y).
+Proof.
+  intros.
+  rewrite <- Z.land_lor_distr_r.
+  rewrite Z.lor_comm.
+  rewrite Z.lor_lnot_diag.
+  symmetry; apply Z.land_m1_r.
+Qed.
+
+Lemma Z_land_disjoint : forall x y,
+  Z.land (Z.land x (Z.lnot y)) (Z.land x y) = 0.
+Proof.
+  intros.
+  rewrite (Z.land_comm x y).
+  rewrite (Z.land_assoc (Z.land x (Z.lnot y)) y x).
+  rewrite <- (Z.land_assoc x (Z.lnot y) y).
+  rewrite (Z.land_comm (Z.lnot y) y).
+  rewrite Z.land_lnot_diag.
+  rewrite Z.land_0_r; apply Z.land_0_l.
+Qed.
+
+Lemma Z_ldiff_ones n x : 
+  0 <= n -> Z.ldiff x (Z.ones n) = 0 <-> (0 <= x <= Z.ones n).
+Proof.
+  intros. split.
+  - apply Z.ldiff_le; rewrite Z.ones_equiv.
+    apply Z.lt_le_pred, Z.pow_pos_nonneg. lia. apply H.
+  - intros; destruct H0. destruct (Z.eqb_spec x 0).
+    + rewrite e. reflexivity.
+    + apply Z.ldiff_ones_r_low. lia.
+      rewrite Z.ones_equiv in H1; apply Z.lt_le_pred in H1.
+      apply Z.log2_lt_pow2. lia. apply H1.
+Qed.
+
 Lemma Zland_lb : forall x1 b1 x2 b2,
     Z.land (2 * x1 + Z.b2z b1) (2* x2 + Z.b2z b2) =
       2 * Z.land x1 x2 + Z.b2z (b1 && b2).
