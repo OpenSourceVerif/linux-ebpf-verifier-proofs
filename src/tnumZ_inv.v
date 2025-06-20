@@ -18,6 +18,17 @@ Proof.
   lia.
 Qed.
 
+Lemma tnum_ge_inv_gamma_bound a i :
+  gamma a i -> tnum_ge_inv a -> fst a <= i <= fst a + snd a.
+Proof.
+  intros Hgamma Hinv.
+  assert (0 <= i) by (apply (tnum_ge_inv_gamma a i Hgamma Hinv); auto).
+  destruct Hinv as [Hinv0 Hinv1].  
+  split.
+  - rewrite <- Hgamma. unfold gamma. apply (Z_land_leb i _ H).
+  - 
+Admitted.
+
 Lemma tnum_ge_inv_add: forall a b,
   tnum_ge_inv a ->
   tnum_ge_inv b ->

@@ -187,3 +187,11 @@ Definition tnum_mul_simple (a b: tnum) (width: nat): tnum :=
   (*let n := tnum_num_bits a in *)
   let (acc_v, acc_m) := tnum_mul_simple_rec width a b (0, 0) (0, 0) in
     tnum_add acc_v acc_m.
+
+Definition tnum_udiv (a b: tnum): tnum :=
+  if Z.eqb (fst b) 0 then (0, -1) (* -1 represents unsigned_max *)
+  else if Z.eqb (snd a) 0 && Z.eqb (snd b) 0 then (Z.div (fst a) (fst b), 0) (* concrete udiv *)
+  else
+    let max_res := Z.div (Z.add (fst a) (snd a)) (fst b) in
+      if Z.eqb max_res 0 then (0, 0)
+      else (0, Z.ones (Z.log2 max_res + 1)).
