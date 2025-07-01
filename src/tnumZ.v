@@ -150,6 +150,22 @@ Definition Z_size (x: Z) : nat :=
   | _ => 0
   end.
 
+Definition Z_size_Z (x: Z) : Z :=
+  match x with
+  | Z0 => 0
+  | _ => Z.log2 (Z.abs x) + 1
+  end.
+
+Lemma Z_size_equiv : forall x, Z.of_nat (Z_size x) = Z_size_Z x.
+Proof.
+  intros x. unfold Z_size, Z_size_Z.
+  destruct x; try reflexivity;
+  rewrite <- Z.log2_shiftl; simpl;
+  try apply positive_nat_Z;
+  try apply Pos2Z.is_pos;
+  try lia.
+Qed.
+
 Definition tnum_num_bits (a: tnum): nat :=
   Nat.max (Z_size (fst a)) (Z_size (snd a)).
 
@@ -193,5 +209,4 @@ Definition tnum_udiv (a b: tnum): tnum :=
   else if Z.eqb (snd a) 0 && Z.eqb (snd b) 0 then (Z.div (fst a) (fst b), 0) (* concrete udiv *)
   else
     let max_res := Z.div (Z.add (fst a) (snd a)) (fst b) in
-      if Z.eqb max_res 0 then (0, 0)
-      else (0, Z.ones (Z.log2 max_res + 1)).
+      (0, Z.ones (Z_size_Z max_res)).
