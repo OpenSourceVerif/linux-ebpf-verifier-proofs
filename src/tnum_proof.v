@@ -1,7 +1,7 @@
 From Coq Require Import List ZArith Lia.
 From compcert.lib Require Import Integers.
 (*From bpf.src Require Import tnum. *)
-Require Import tnumZ tnumZ_add_sound.
+Require Import tnumZ tnumZ_add_sound tnumZ_sub_sound.
 Require Import tnum.
 
 Import ListNotations.
@@ -110,6 +110,16 @@ Proof.
   reflexivity.
 Qed.
 
+Lemma testbit_sub : forall i x y,
+    0 <= i < Int64.zwordsize ->
+    Int64.testbit (Int64.sub x y) i =
+      Z.testbit (Int64.unsigned x - Int64.unsigned y) i.
+Proof.
+  intros. unfold Int64.sub.
+  rewrite Int64.testbit_repr by auto.
+  reflexivity.
+Qed.
+
 (*
 Lemma add_carry_bit_low : forall x1 x2 y1 y2 n c,
     (forall i, (i < n)%nat -> Z.testbit x1 (Z.of_nat i)  =
@@ -142,6 +152,17 @@ Proof.
   rewrite H0.
   rewrite Z.mod_pow2_bits_low with (n:=n) by lia.
   reflexivity.
+Qed.
+
+Lemma testbit_pow2 : forall n i a,
+    0 <= i < n ->
+    Z.testbit a i = Z.testbit (a + 2 ^ n) i.
+Proof.
+  intros.
+  apply (testbit_mod _ _ _ _ H).
+  rewrite <- (Z_mod_plus _ 1).
+  rewrite Z.mul_1_l. reflexivity.
+  lia.
 Qed.
 
 Lemma tnum_add_eq : forall a b,
@@ -201,6 +222,81 @@ Proof.
     reflexivity.
 Qed.
 
+Lemma tnum_sub_eq : forall a b,
+    tnum_sub a b =
+      of_tnumZ (tnumZ.tnum_sub (to_tnumZ a) (to_tnumZ b)).
+Proof.
+  unfold tnum_sub, tnumZ.tnum_sub. unfold of_tnumZ.
+  simpl. intros. f_equal.
+  - apply Int64.same_bits_eq.
+    intros.
+    rewrite Int64.testbit_repr by auto.
+    rewrite Int64.bits_and by auto.
+    rewrite testbit_sub by auto.
+    rewrite Z.land_spec.
+    f_equal.
+    rewrite! Int64.bits_not by auto.
+    rewrite Z.lnot_spec by tauto.
+    f_equal.
+    rewrite! Int64.bits_or by auto.
+    rewrite Z.lor_spec by tauto.
+    rewrite! Int64.bits_xor by auto.
+    rewrite Z.lxor_spec by tauto.
+    rewrite Z.lor_spec.
+    f_equal.
+    f_equal.
+    + rewrite! testbit_add by auto.
+      apply testbit_mod with (n:= Int64.zwordsize);auto.
+      unfold Int64.sub.
+      rewrite! Int64.unsigned_repr_eq.
+      change Int64.modulus with (2^Int64.zwordsize).
+      change (Int64.zwordsize) with 64.
+      lia.
+    + rewrite! testbit_sub by auto.
+      rewrite Int64.unsigned_sub_borrow.
+      unfold Int64.sub_borrow.
+      destruct (Coqlib.zlt (Int64.unsigned (fst a) - Int64.unsigned (fst b) - Int64.unsigned Int64.zero) 0).
+      * rewrite Int64.unsigned_one; rewrite Z.mul_1_l.
+        rewrite <- Z.add_opp_r.
+        rewrite <- Z.add_assoc.
+        rewrite (Z.add_comm Int64.modulus).
+        rewrite Z.add_assoc.
+        change Int64.modulus with (2^Int64.zwordsize).
+        rewrite <- testbit_pow2 with (n := Int64.zwordsize);auto.
+      * rewrite Int64.unsigned_zero. simpl.
+        rewrite Z.add_0_r. reflexivity.
+  - apply Int64.same_bits_eq.
+    intros.
+    rewrite Int64.testbit_repr by auto.
+    rewrite Int64.bits_or by auto.
+    rewrite Z.lor_spec.
+    rewrite Int64.bits_xor by auto.
+    rewrite Z.lxor_spec.
+    rewrite Int64.bits_or by auto.
+    rewrite Z.lor_spec.
+    f_equal.
+    f_equal.
+    + rewrite! testbit_add by auto.
+      apply testbit_mod with (n:= Int64.zwordsize);auto.
+      unfold Int64.sub.
+      rewrite! Int64.unsigned_repr_eq.
+      change Int64.modulus with (2^Int64.zwordsize).
+      change (Int64.zwordsize) with 64.
+      lia.
+    + rewrite! testbit_sub by auto.
+      rewrite Int64.unsigned_sub_borrow.
+      unfold Int64.sub_borrow.
+      destruct (Coqlib.zlt (Int64.unsigned (fst a) - Int64.unsigned (fst b) - Int64.unsigned Int64.zero) 0).
+      * rewrite Int64.unsigned_one; rewrite Z.mul_1_l.
+        rewrite <- Z.add_opp_r.
+        rewrite <- Z.add_assoc.
+        rewrite (Z.add_comm Int64.modulus).
+        rewrite Z.add_assoc.
+        change Int64.modulus with (2^Int64.zwordsize).
+        rewrite <- testbit_pow2 with (n := Int64.zwordsize);auto.
+      * rewrite Int64.unsigned_zero. simpl.
+        rewrite Z.add_0_r. reflexivity.
+Qed.
 
 
 Theorem tnum_binary_sound :
@@ -257,4 +353,19 @@ Proof.
   - intros.
     apply testbit_add ; auto.
   - apply tnum_add_eq.
+Qed.
+
+Theorem tnum_sub_sound :
+  forall a b i j
+         (MEMA : mem_tnum i a = true)
+         (MEMB : mem_tnum j b = true),
+    mem_tnum (Int64.sub i j) (tnum_sub a b) = true.
+Proof.
+  intros.
+  apply tnum_binary_sound with (tnum_fz := tnumZ.tnum_sub) (fz:= Z.sub); auto.
+  - intros.
+    apply tnumZ_sub_sound.tnum_sub_sound; auto.
+  - intros.
+    apply testbit_sub ; auto.
+  - apply tnum_sub_eq.
 Qed.
