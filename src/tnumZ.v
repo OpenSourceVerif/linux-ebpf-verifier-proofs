@@ -21,6 +21,8 @@ Definition gamma (a: tnum) (x: Z) : Prop :=
 
 Definition wf_tnum (a: tnum): Prop := (Z.land (fst a) (snd a)) = 0.
 
+Definition tnum_is_zero (a: tnum): bool := (Z.eqb (fst a) 0) && (Z.eqb (snd a) 0).
+
 (** forall a b are generated randomly, the and+xor ensures the wf *)
 Lemma random_and_xor_valid: forall a b,
   wf_tnum (a, Z.lxor (Z.land a b) b).
@@ -136,6 +138,13 @@ Proof.
   reflexivity.
 Qed.
 
+Lemma gamma_const_uniq : forall a i,
+  snd a = 0 -> gamma a i -> i = fst a.
+Proof.
+  intros. unfold gamma in H0.
+  rewrite H in H0. rewrite Z.lnot_0 in H0.
+  rewrite Z.land_m1_r in H0. auto.
+Qed.
 
 Definition tnum_lshift (a: tnum) (shift: Z): tnum :=
   ( Z.shiftl (fst a) shift, Z.shiftl (snd a) shift).
@@ -164,6 +173,14 @@ Proof.
   try apply positive_nat_Z;
   try apply Pos2Z.is_pos;
   try lia.
+Qed.
+
+Lemma Z_size_Z_nonneg : forall x, 0 <= Z_size_Z x.
+Proof.
+  intros. unfold Z_size_Z. destruct x.
+  - simpl. lia.
+  - assert (0 <= Z.log2 (Z.abs (Z.pos p))) by apply Z.log2_nonneg. lia.
+  - assert (0 <= Z.log2 (Z.abs (Z.neg p))) by apply Z.log2_nonneg. lia.
 Qed.
 
 Definition tnum_num_bits (a: tnum): nat :=
@@ -211,3 +228,28 @@ Definition tnum_uquot (a b: tnum): tnum :=
     (Z.quot (fst a) (fst b), 0) (* concrete uquot *)
   else let max_res := Z.quot (fst a + snd a) (fst b) in
         (0, Z.ones (Z_size_Z max_res)).
+
+Definition Z_is_pow2 (n : Z) : bool :=
+  (0 <? n) && (Z.land n (n - 1) =? 0).
+
+Definition Z_pow2 (n : Z) : Prop :=
+  0 < n /\ exists x, 2 ^ x = n.
+
+Definition get_low_bits (a b: tnum):tnum :=
+  if tnum_is_zero b || Z.odd (fst b) || Z.odd (snd b) then (0, -1)
+  else let b_max := fst b + snd b in
+    let mask := (Z.land b_max (-b_max)) - 1 in
+      (Z.land (fst a) mask, Z.lor (Z.land (snd a) mask) (Z.lnot mask)).
+      (* set bits except low_bits in res.m to 1 *)
+
+(* Z.rem: Truncating Remainder *)
+Definition tnum_urem (a b: tnum): tnum :=
+  if Z.eqb (fst b) 0 then (0, -1)
+  else if Z.eqb (snd a) 0 && Z.eqb (snd b) 0 then (Z.rem (fst a) (fst b), 0)
+  else if Z.eqb (snd b) 0 && Z_is_pow2 (fst b) then
+    (Z.land (fst a) ((fst b) - 1), Z.land (snd a) ((fst b) - 1))
+  else let res := get_low_bits a b in
+    let a_max := fst a + snd a in
+    let b_max := fst b + snd b in
+    let mask := Z.ones (Z_size_Z (Z.min a_max b_max)) in
+      (Z.land (fst res) mask, Z.land (snd res) mask).

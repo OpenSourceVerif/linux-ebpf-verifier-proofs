@@ -18,6 +18,14 @@ Proof.
   lia.
 Qed.
 
+Lemma tnum_gt_inv_gamma: forall a i,
+  gamma a i -> tnum_ge_inv a -> (fst a) <> 0 -> 0 < i.
+Proof.
+  intros. pose proof (tnum_ge_inv_gamma _ _ H H0).
+  destruct i; try lia.
+  unfold gamma in H. rewrite <- H in H1. rewrite Z.land_0_l in H1. lia.
+Qed.
+
 Lemma tnum_ge_inv_gamma_bound a i :
   gamma a i -> tnum_ge_inv a -> fst a <= i <= fst a + snd a.
 Proof.

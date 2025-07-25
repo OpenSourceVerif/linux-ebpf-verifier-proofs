@@ -459,6 +459,20 @@ Proof.
   btauto.
 Qed.
 
+Lemma gamma_testbit_mask_false_Z:
+  forall va ma i x
+  (Hg: gamma (va, ma) i)
+  (Hor_ma : Z.testbit ma x = false),
+  0 <= x -> Z.testbit va x = Z.testbit i x.
+Proof.
+  intros.
+  unfold gamma in *; simpl in *; subst.
+  rewrite ! Z.land_spec.
+  rewrite ! Z.lnot_spec by lia.
+  rewrite Hor_ma.
+  btauto.
+Qed.
+
 (**prove the tnum_sub_eq firstly *)
 
 Lemma Ztestbit_and_not_false: forall mb n j
