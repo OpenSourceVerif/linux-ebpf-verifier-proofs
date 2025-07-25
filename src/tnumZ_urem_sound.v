@@ -41,15 +41,55 @@ Proof.
     rewrite <- H0 in H. destruct x0; try lia. discriminate.
 Qed.
 
+Lemma or_m_same_and_eq: forall x,
+  Z.lor x (- x) = - Z.land x (- x).
+Proof.
+  intros.
+  rewrite <- Z.add_move_0_l.
+  rewrite Z.add_comm.
+  rewrite Z.add_lor_land.
+  lia.
+Qed.
+
 Lemma Z_lsb_is_pow2 : forall x, 0 < x -> Z_pow2 (Z.land x (-x)).
 Proof.
   intros. rewrite <- Z_pow2_equiv. unfold Z_is_pow2.
   apply andb_true_iff. split.
   - apply Z.ltb_lt.
-    admit.
+    replace 0 with (-x + x).
+    2:{ lia. }
+    rewrite Z.add_comm.
+    rewrite <- Z.add_lor_land.
+    assert (Heq: Z.lor x (- x) < 0).
+    2:{ lia. }
+    rewrite Z.lor_neg.
+    lia.
   - apply Z.eqb_eq. apply Z.bits_inj; unfold Z.eqf; intros.
-    rewrite !Z.land_spec.
-Admitted.
+    assert (N : n < 0 \/ n >= 0) by lia.
+    destruct N.
+    + destruct n; try lia; simpl.
+      reflexivity.
+    + rewrite !Z.land_spec.
+      rewrite Z.testbit_0_l.
+      destruct (Z.testbit x n) eqn: Hn; try lia.
+      rewrite andb_true_l.
+      rewrite andb_false_iff.
+      right.
+      assert (Heq: Z.land x (- x) =
+      - (- (Z.land x (- x)))). {
+        rewrite Z.opp_involutive.
+        lia.
+      }
+      rewrite Heq; clear Heq.
+      rewrite <- Z.lnot_eq_pred_opp.
+      rewrite ! Z.lnot_spec; try lia.
+      rewrite negb_false_iff.
+
+      rewrite <- or_m_same_and_eq.
+      rewrite !Z.lor_spec; try lia.
+      rewrite Hn.
+      lia.
+Qed.
 
 Lemma Z_testbit_neg_1 : forall n,
   0 <= n -> Z.testbit (-1) n = true.
@@ -147,10 +187,36 @@ Proof.
 Qed.
 
 Lemma Z_testbit_lt_lsb: forall x n,
-  Z.testbit (Z.land x (-x) - 1) n = true -> Z.testbit x n = false.
+  0 <= n ->
+  Z.testbit ((Z.land x (-x)) - 1) n = true -> Z.testbit x n = false.
 Proof.
   intros.
-Admitted.
+  assert (Heq: x + - x = Z.land x (- x) + Z.lor x (- x)). {
+    rewrite Z.add_comm with (n := Z.land x (- x)).
+    rewrite Z.add_lor_land.
+    lia.
+  }
+  assert (Heq1: Z.lor x (- x)  = - (Z.land x (- x) - 1) - 1). {
+    rewrite or_m_same_and_eq.
+    lia.
+  }
+  assert (Heq2: Z.testbit (Z.lor x (- x)) n = false). {
+    rewrite Heq1.
+    assert (Hp: - (Z.land x (- x) - 1) - 1 = Z.pred (- (Z.land x (- x) - 1))). {
+      unfold Z.pred.
+      lia.
+    }
+    rewrite Hp; clear Hp.
+    rewrite <- negb_true_iff.
+    rewrite <- Z.bits_opp; try lia.
+    rewrite Z.opp_involutive.
+    assumption.
+  }
+  rewrite Z.lor_spec in Heq2.
+  rewrite orb_false_iff in Heq2.
+  destruct Heq2 as (Heq2 & Heq3).
+  assumption.
+Qed.
 
 Lemma tnum_urem_sound : forall a b i j
   (Ha_inv: tnum_ge_inv a)
@@ -206,7 +272,7 @@ Proof.
       assert (Hn: n < 0 \/ 0 <= n) by lia. destruct Hn.
       { destruct n; try lia. reflexivity. }
       destruct (Z.testbit mask0 n) eqn:Hmask0 ; try lia.
-      apply andb_false_iff. left. subst mask0. apply Z_testbit_lt_lsb in Hmask0.
+      apply andb_false_iff. left. subst mask0. apply Z_testbit_lt_lsb in Hmask0; try lia.
       rewrite (gamma_add_lor _ _ Hgb) in Hmask0. rewrite Z.lor_spec in Hmask0.
       rewrite orb_false_iff in Hmask0. destruct Hmask0.
       rewrite <- (gamma_testbit_mask_false_Z (fst b) (snd b) j n Hgb H2 H0). apply H1. }
