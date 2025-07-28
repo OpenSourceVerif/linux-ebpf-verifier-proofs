@@ -1,6 +1,18 @@
 From Coq Require Import ZArith Lia Btauto.
 From bpf.src Require Import tnumZ.
 
+Lemma tnum_lshift_fst : forall a shift,
+  fst (tnum_lshift a shift) = Z.shiftl (fst a) shift.
+Proof.
+  intros. simpl. reflexivity.
+Qed.
+
+Lemma tnum_rshift_fst : forall a shift,
+  fst (tnum_rshift a shift) = Z.shiftr (fst a) shift.
+Proof.
+  intros. simpl. reflexivity.
+Qed.
+
 Lemma tnum_lshift_sound : forall a i shift,
     gamma a i ->
     gamma (tnum_lshift a shift) (Z.shiftl i shift).

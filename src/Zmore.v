@@ -543,3 +543,22 @@ Proof.
   rewrite Z.land_comm.
   lia.
 Qed.
+
+Lemma Z_bits_decomp : forall x k,
+  0 <= x -> 0 <= k -> x = Z.land x (Z.ones k) + Z.shiftl (Z.shiftr x k) k.
+Proof.
+  intros.
+  rewrite Z.land_ones; try lia.
+  rewrite Z.shiftl_mul_pow2; try lia.
+  rewrite Z.shiftr_div_pow2; try lia.
+Qed.
+
+Lemma Z_shiftr_ones : forall x y,
+  0 <= x -> 0 <= y -> Z.shiftr (Z.ones (x + y)) y = Z.ones x.
+Proof.
+  intros. rewrite Z.shiftr_div_pow2; try lia.
+  rewrite !Z.ones_equiv. rewrite <- !Z.sub_1_r.
+  rewrite Z.pow_add_r; try lia.
+  rewrite Z.mul_comm.
+  rewrite <- (Z.div_unique (2 ^ y * 2 ^ x - 1) (2 ^ y) (2 ^ x - 1) (2 ^ y - 1)); try lia.
+Qed.

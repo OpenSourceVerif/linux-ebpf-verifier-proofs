@@ -186,21 +186,21 @@ Qed.
 Definition tnum_num_bits (a: tnum): nat :=
   Nat.max (Z_size (fst a)) (Z_size (snd a)).
 
-Fixpoint tnum_mul_rec (fuel: nat) (a b: tnum): tnum :=
+Fixpoint tnum_mul_rec (fuel: nat) (a b f: tnum): tnum :=
   match fuel with
-  | O => (0, 0)
+  | O => f
   | S n =>
     let c1 := Z.eqb (Z.land (fst a) 1) 1 in
     let c2 := Z.eqb (Z.land (snd a) 1) 1 in
-    let acc_m := tnum_mul_rec n (tnum_rshift a 1) (tnum_lshift b 1) in
-      if c1 then tnum_add acc_m (0, snd b) else
-      if c2 then tnum_add acc_m (0, Z.lor (fst b) (snd b)) else acc_m
+    let acc_m := if c1 then tnum_add f (0, snd b)
+                  else if c2 then tnum_add f (0, Z.lor (fst b) (snd b)) 
+                  else f in
+      tnum_mul_rec n (tnum_rshift a 1) (tnum_lshift b 1) acc_m
   end.
 
-Definition tnum_mul (a b: tnum): tnum :=
-  let n := tnum_num_bits a in
+Definition tnum_mul (a b: tnum) (width: nat): tnum :=
   let acc_v := (Z.mul (fst a) (fst b), 0) in
-  let acc_m := tnum_mul_rec n a b in
+  let acc_m := tnum_mul_rec width a b (0, 0) in
     tnum_add acc_v acc_m.
 
 Fixpoint tnum_mul_simple_rec (fuel: nat) (a b d f: tnum): tnum * tnum :=

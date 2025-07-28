@@ -1094,8 +1094,8 @@ Proof.
     + apply IHp; auto.
 Qed.
 
-(** [tnum_mul_sound] proves the soundness of the abstract multiplication *)
-Lemma tnum_mul_sound : forall a b i j
+(** [tnum_mul_simple_sound] proves the soundness of the abstract multiplication *)
+Lemma tnum_mul_simple_sound : forall a b i j
   (Ha_inv: tnum_ge_inv a)
   (Hb_inv: tnum_ge_inv b)
   (Hga: gamma a i)
@@ -1154,4 +1154,104 @@ Proof.
     rewrite <- Hacc_v in Hl.
     rewrite <- Hacc_m in Hl.
     auto.
+Qed.
+
+Lemma tnum_add_snd_0 : forall a b,
+  tnum_add (a, 0) (b, 0) = (a + b, 0).
+Proof.
+  intros. unfold tnum_add. simpl.
+  rewrite Z.lxor_nilpotent. simpl.
+  rewrite Z.lnot_0. rewrite Z.land_m1_r. reflexivity.
+Qed.
+
+Lemma Z_mul_step : forall a b k,
+  0 <= a -> 0 <= k -> Z.mul (Z.land a (Z.ones (k + 1))) b =
+  Z.mul (Z.land a 1) b + Z.mul (Z.land (Z.shiftr a 1) (Z.ones k)) (Z.shiftl b 1).
+Proof.
+  intros. rewrite Z.shiftl_mul_pow2; try lia.
+  rewrite (Z.mul_comm b).
+  rewrite Z.mul_assoc.
+  rewrite <- Z.mul_add_distr_r.
+  destruct (Z.eqb_spec b 0) as [E|E].
+  - subst b. rewrite !Z.mul_0_r. reflexivity.
+  - apply Z.mul_cancel_r; try lia.
+    rewrite (Z_bits_decomp (Z.land a (Z.ones (k + 1))) 1); try lia.
+    2: { rewrite Z.land_ones; lia. }
+    assert (Hequiv1: Z.land (Z.land a (Z.ones (k + 1))) (Z.ones 1) = Z.land a 1).
+    { rewrite <- Z.land_assoc. rewrite (Z.land_comm _ 1).
+      rewrite Z.land_ones_low; simpl; try lia. }
+    assert (Hequiv2: Z.shiftl (Z.shiftr (Z.land a (Z.ones (k + 1))) 1) 1 = Z.land (Z.shiftr a 1) (Z.ones k) * 2 ^ 1).
+    { rewrite Z.shiftl_mul_pow2; try lia.
+      apply Z.mul_cancel_r; try lia.
+      rewrite Z.shiftr_land. rewrite (Z_shiftr_ones); try lia. }
+    rewrite Hequiv1, Hequiv2. reflexivity.
+Qed.
+
+Lemma tnum_mul_equiv : forall a b i
+  (Ha_inv: tnum_ge_inv a)
+  (Hga: gamma a i),
+    tnum_mul a b (Z_size i) = tnum_mul_simple a b (Z_size i).
+Proof.
+  intros. unfold tnum_mul, tnum_mul_simple.
+  rewrite (surjective_pairing (tnum_mul_simple_rec (Z_size i) a b (0, 0) (0, 0))).
+  assert (H1 : forall n a b d f,
+    snd d = 0 -> 0 <= fst a -> (fst d + Z.mul (Z.land (fst a) (Z.ones (Z.of_nat n))) (fst b), 0)
+                  = fst (tnum_mul_simple_rec n a b d f)).
+  { intros n. induction n as [| n' IHn'].
+    - intros. rewrite Z.ones_equiv. rewrite Z.land_0_r.
+      rewrite Z.add_0_r. simpl.
+      rewrite surjective_pairing. rewrite H. reflexivity.
+    - intros. unfold tnum_mul_simple_rec; fold tnum_mul_simple_rec.
+      rewrite (surjective_pairing d) at 2.
+      rewrite (surjective_pairing d) at 4. rewrite H. rewrite tnum_add_snd_0.
+      assert ((if Z.land (fst a0) 1 =? 1 then (fst d + fst b0, 0) else (fst d, 0))
+              = (fst d + Z.mul (Z.land (fst a0) 1) (fst b0), 0)).
+      { destruct (Z.eqb_spec (Z.land (fst a0) 1) 1) as [E|E].
+        - rewrite E. rewrite Z.mul_1_l. reflexivity.
+        - assert (Z.land (fst a0) 1 = 0).
+          { pose proof (Z_land_1_eq (fst a0)). lia. }
+          rewrite H1. rewrite Z.add_0_r. reflexivity. }
+      rewrite H1.
+      rewrite <- IHn'.
+      + unfold fst at 4. rewrite tnum_lshift_fst. rewrite tnum_rshift_fst.
+        rewrite Nat2Z.inj_succ; rewrite <- Z.add_1_r.
+        set (k := Z.of_nat n'). rewrite Z_mul_step; try lia. 
+        rewrite Z.add_assoc. reflexivity.
+      + destruct (Z.land (fst a0) 1 =? 1); reflexivity + apply H.
+      + rewrite tnum_rshift_fst. apply Z.shiftr_nonneg. apply H0. }
+  assert (Hequiv1: (fst a * fst b, 0) = fst (tnum_mul_simple_rec (Z_size i) a b (0, 0) (0, 0))).
+  { rewrite <- H1; try reflexivity.
+    2:{ unfold tnum_ge_inv in Ha_inv. lia. }
+    assert (fst a = Z.land (fst a) (Z.ones (Z.of_nat (Z_size i)))).
+    { assert (0 <= i) by apply (tnum_ge_inv_gamma _ _ Hga Ha_inv).
+      assert (fst a <= i) by apply (tnum_ge_inv_gamma_bound _ _ Hga Ha_inv).
+      destruct i eqn:Ei; try lia.
+      - unfold gamma in Hga. simpl in Hga. rewrite <- Hga. reflexivity.
+      - unfold tnum_ge_inv in Ha_inv. rewrite Z.land_ones_low; try lia.
+        rewrite Z_size_equiv. unfold Z_size_Z. rewrite (Z.abs_eq _ H).
+        assert (Z.log2 (fst a) <= Z.log2 (Z.pos p)) by apply (Z.log2_le_mono _ _ H0).
+        lia. }
+    rewrite H at 1. reflexivity. }
+  assert (H2: forall n a b d f,
+    tnum_mul_rec n a b f = let (res_d, res_f) := tnum_mul_simple_rec n a b d f in res_f).
+  { intros n. induction n as [| n' IHn'].
+    - intros. simpl. reflexivity.
+    - intros. unfold tnum_mul_rec; fold tnum_mul_rec.
+      unfold tnum_mul_simple_rec; fold tnum_mul_simple_rec.
+      rewrite (IHn' _ _ (if Z.land (fst a0) 1 =? 1 then tnum_add d (fst b0, 0) else d) _).
+      reflexivity. }
+  assert (Hequiv2: tnum_mul_rec (Z_size i) a b (0, 0) = snd (tnum_mul_simple_rec (Z_size i) a b (0, 0) (0, 0))).
+  { rewrite (H2 _ _ _ (0,0) _). reflexivity. }
+  rewrite Hequiv1, Hequiv2. reflexivity.
+Qed.
+
+Lemma tnum_mul_sound : forall a b i j
+  (Ha_inv: tnum_ge_inv a)
+  (Hb_inv: tnum_ge_inv b)
+  (Hga: gamma a i)
+  (Hgb: gamma b j),
+    gamma (tnum_mul a b (Z_size i)) (i * j).
+Proof.
+  intros. rewrite (tnum_mul_equiv _ _ i); auto.
+  apply tnum_mul_simple_sound; auto.
 Qed.
