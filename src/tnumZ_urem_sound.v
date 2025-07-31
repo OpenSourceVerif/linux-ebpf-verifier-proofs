@@ -247,7 +247,7 @@ Proof.
     rewrite <- Hga. rewrite <- !Z.ldiff_land. apply Z_ldiff_land_ones. }
   assert (0 < j) by apply (tnum_gt_inv_gamma _ _ Hgb Hb_inv Hb_v0).
   unfold gamma; simpl. unfold get_low_bits.
-  destruct (tnum_is_zero b || Z.odd (fst b) || Z.odd (snd b)).
+  destruct (Z.odd (fst b) || Z.odd (snd b)).
   (* Case 3: get_low_bits return default (0, 1) *)
   { unfold snd at 1. rewrite (Z_land_ones_neg_1 _ (Z_size_Z_nonneg _)) at 1. simpl.
     rewrite <- Z.ldiff_land. apply (rem_ldiff_ones_0 _ _ _ _ Ha_inv Hb_inv Hga Hgb H). }

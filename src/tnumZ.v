@@ -21,8 +21,6 @@ Definition gamma (a: tnum) (x: Z) : Prop :=
 
 Definition wf_tnum (a: tnum): Prop := (Z.land (fst a) (snd a)) = 0.
 
-Definition tnum_is_zero (a: tnum): bool := (Z.eqb (fst a) 0) && (Z.eqb (snd a) 0).
-
 (** forall a b are generated randomly, the and+xor ensures the wf *)
 Lemma random_and_xor_valid: forall a b,
   wf_tnum (a, Z.lxor (Z.land a b) b).
@@ -235,8 +233,8 @@ Definition Z_is_pow2 (n : Z) : bool :=
 Definition Z_pow2 (n : Z) : Prop :=
   0 < n /\ exists x, 2 ^ x = n.
 
-Definition get_low_bits (a b: tnum):tnum :=
-  if tnum_is_zero b || Z.odd (fst b) || Z.odd (snd b) then (0, -1)
+Definition rem_get_low_bits (a b: tnum):tnum :=
+  if Z.odd (fst b) || Z.odd (snd b) then (0, -1)
   else let b_max := fst b + snd b in
     let mask := (Z.land b_max (-b_max)) - 1 in
       (Z.land (fst a) mask, Z.lor (Z.land (snd a) mask) (Z.lnot mask)).
@@ -248,7 +246,7 @@ Definition tnum_urem (a b: tnum): tnum :=
   else if Z.eqb (snd a) 0 && Z.eqb (snd b) 0 then (Z.rem (fst a) (fst b), 0)
   else if Z.eqb (snd b) 0 && Z_is_pow2 (fst b) then
     (Z.land (fst a) ((fst b) - 1), Z.land (snd a) ((fst b) - 1))
-  else let res := get_low_bits a b in
+  else let res := rem_get_low_bits a b in
     let a_max := fst a + snd a in
     let b_max := fst b + snd b in
     let mask := Z.ones (Z_size_Z (Z.min a_max b_max)) in
