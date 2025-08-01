@@ -21,6 +21,8 @@ Definition gamma (a: tnum) (x: Z) : Prop :=
 
 Definition wf_tnum (a: tnum): Prop := (Z.land (fst a) (snd a)) = 0.
 
+Definition tnum_is_odd (a: tnum): bool := (Z.odd (fst a)) && (Z.even (snd a)).
+
 (** forall a b are generated randomly, the and+xor ensures the wf *)
 Lemma random_and_xor_valid: forall a b,
   wf_tnum (a, Z.lxor (Z.land a b) b).
@@ -219,6 +221,24 @@ Definition tnum_mul_simple (a b: tnum) (width: nat): tnum :=
   let (acc_v, acc_m) := tnum_mul_simple_rec width a b (0, 0) (0, 0) in
     tnum_add acc_v acc_m.
 
+(* Definition tnum_udiv (a b: tnum): tnum :=
+  if Z.eqb (fst b) 0 then (0, -1) (* -1ones represents unsigned_max *)
+  else
+    let res := (0, -1) in
+    let max_res := Z.div (Z.add (fst a) (snd a)) (fst b) in
+      if Z.eqb max_res 0 then (0, 0)
+      else
+        let avail_bits := (Z.lnot (Z.shiftl (-1) (Z.log2 max_res + 1))) in
+          (Z.land (fst res) avail_bits, Z.land (snd res) avail_bits). *)
+
+(* Definition tnum_udiv (a b: tnum): tnum :=
+  if Z.eqb (fst b) 0 then (0, -1) (* -1 represents unsigned_max *)
+  else if Z.eqb (snd a) 0 && Z.eqb (snd b) 0 then (Z.div (fst a) (fst b), 0) (* concrete udiv *)
+  else
+    let max_res := Z.div (Z.add (fst a) (snd a)) (fst b) in
+      if Z.eqb max_res 0 then (0, 0)
+      else (0, Z.land (-1) (Z.lnot (Z.shiftl (-1) (Z.log2 max_res + 1)))). *)
+
 (* Z.quot: Truncating Division *)
 Definition tnum_uquot (a b: tnum): tnum :=
   if Z.eqb (fst b) 0 then (0, -1) (* -1 represents unsigned_max *)
@@ -227,11 +247,57 @@ Definition tnum_uquot (a b: tnum): tnum :=
   else let max_res := Z.quot (fst a + snd a) (fst b) in
         (0, Z.ones (Z_size_Z max_res)).
 
+(* Definition quot_get_low_bits (res a b: tnum) : tnum :=
+  if (tnum_is_odd a && tnum_is_odd b) then
+    (Z.lor (fst res) 1, Z.land (snd res) (Z.lnot 1))
+  else let a1_tz := Z.land (fst a) (- fst a) in
+    let a2_tz := Z.land (snd a) (- snd a) in
+    let b1_tz := Z.land (fst b) (- fst b) in
+    let b2_tz := Z.land (snd b) (- snd b) in
+    let min_tz := Z.min a1_tz a2_tz / b1_tz in
+    let max_tz := Z.max a1_tz / Z.min b1_tz b2_tz in
+      if (1 <= min_tz) then
+        let new_res := (Z.land (fst res) (Z.lnot (min_tz - 1)),
+                        Z.land (snd res) (Z.lnot (min_tz - 1))) in
+          if (max_tz = min_tz) then
+            (Z.land (fst new_res) ())
+
+
+
+(* Preciser Version *)
+Definition tnum_uquot_precise (a b: tnum): tnum :=
+  if Z.eqb (fst b) 0 then (0, -1) (* -1 represents unsigned_max *)
+  else if Z.eqb (snd a) 0 && Z.eqb (snd b) 0 then
+    (Z.quot (fst a) (fst b), 0) (* concrete uquot *)
+  else let max_res := Z.quot (fst a + snd a) (fst b) in
+        (0, Z.ones (Z_size_Z max_res)). *)
+
 Definition Z_is_pow2 (n : Z) : bool :=
   (0 <? n) && (Z.land n (n - 1) =? 0).
 
 Definition Z_pow2 (n : Z) : Prop :=
   0 < n /\ exists x, 2 ^ x = n.
+
+(* Definition get_low_bits_old (a b: tnum):tnum :=
+  if tnum_is_zero b || Z.odd (fst b) || Z.odd (snd b) then (0, -1)
+  else let max_b := fst b + snd b in
+    let qzero := Z.log2 (Z.land max_b (Z.lnot max_b + 1)) in
+      if qzero =? 0 then (0, -1)
+      else let mask := (Z.shiftl 1 (qzero - 1)) - 1 in
+        (Z.land (fst a) mask, Z.land (snd a) mask).
+
+Definition tnum_umod_old (a b: tnum): tnum :=
+  if Z.eqb (fst b) 0 then (0, -1)
+  else let res := get_low_bits_old a b in
+    if (Z.eqb (snd b) 0) && (Z_is_pow2 (fst b)) then
+      (Z.land (fst res) ((fst b) - 1), Z.land (snd res) ((fst b) - 1))
+    else
+      let a_bits := Z.max (Z.log2 (fst a) + 1) (Z.log2 (snd a) + 1) in
+      let b_bits := Z.max (Z.log2 (fst b) + 1) (Z.log2 (snd b) + 1) in
+      let mask := Z.ones (Z.min a_bits b_bits) in
+          (Z.land (fst res) mask, Z.land (snd res) mask). *)
+
+Print Z.opp.
 
 Definition rem_get_low_bits (a b: tnum):tnum :=
   if Z.odd (fst b) || Z.odd (snd b) then (0, -1)
