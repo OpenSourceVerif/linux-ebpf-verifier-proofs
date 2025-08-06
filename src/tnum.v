@@ -1,6 +1,7 @@
-From Coq Require Import List ZArith.
+From Coq Require Import List ZArith Bool.
 From compcert.lib Require Import Integers.
 Import ListNotations.
+Require Import tnumZ.
 
 Definition u8 := byte.
 Definition s32 := int.
@@ -119,6 +120,47 @@ Definition tnum_mul (a b: tnum): tnum :=
   let acc_m := (Int64.zero, Int64.zero) in
   let res := tnum_mul_rec a b 64 acc_m in
     tnum_add (acc_v, Int64.zero) res.
+
+Definition Int64_size (x: u64) : Z :=
+  Z_size_Z (Int64.unsigned x).
+
+Definition Int64_ones (n : Z) : u64 :=
+  Int64.repr (Z.ones n).
+
+Definition Int64_odd (x: u64) : bool :=
+  Z.odd (Int64.unsigned x).
+
+Definition Int64_is_pow2 (x: u64) : bool :=
+  Z_is_pow2 (Int64.unsigned x).
+
+Definition Int64_min (a b : u64) : Z :=
+  Z.min (Int64.unsigned a) (Int64.unsigned b).
+
+Definition tnum_udiv (a b: tnum): tnum :=
+  if Int64.eq (fst b) Int64.zero then (Int64.zero, Int64.mone)
+  else if (Int64.eq (snd a) Int64.zero) && (Int64.eq (snd b) Int64.zero) then
+    (Int64.divu (fst a) (fst b), Int64.zero)
+  else let max_res := Int64.divu (Int64.add (fst a) (snd a)) (fst b) in
+        (Int64.zero, Int64_ones (Int64_size max_res)).
+
+Definition mod_get_low_bits (a b: tnum):tnum :=
+  if Int64_odd (fst b) || Int64_odd (snd b) then (Int64.zero, Int64.mone)
+  else let b_max := Int64.add (fst b) (snd b) in
+    let mask := Int64.sub (Int64.and b_max (Int64.neg b_max)) Int64.one in
+      (Int64.and (fst a) mask, Int64.or (Int64.and (snd a) mask) (Int64.not mask)).
+
+Definition tnum_umod (a b: tnum): tnum :=
+  if Int64.eq (fst b) Int64.zero then (Int64.zero, Int64.mone)
+  else if Int64.eq (snd a) Int64.zero && Int64.eq (snd b) Int64.zero then
+    (Int64.modu (fst a) (fst b), Int64.zero)
+  else if Int64.eq (snd b) Int64.zero && Int64_is_pow2 (fst b) then
+    (Int64.and (fst a) (Int64.sub (fst b) Int64.one),
+     Int64.and (snd a) (Int64.sub (fst b) Int64.one))
+  else let res := mod_get_low_bits a b in
+    let a_max := Int64.add (fst a) (snd a) in
+    let b_max := Int64.add (fst b) (snd b) in
+    let mask := Int64_ones (Z_size_Z (Int64_min a_max b_max)) in
+      (Int64.and (fst res) mask, Int64.and (snd res) mask).
 
 Definition tnum_intersect (a b: tnum): tnum :=
   let v   := Int64.xor (fst a) (fst b) in
