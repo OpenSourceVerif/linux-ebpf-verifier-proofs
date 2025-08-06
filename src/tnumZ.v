@@ -219,12 +219,13 @@ Definition tnum_mul_simple (a b: tnum) (width: nat): tnum :=
   let (acc_v, acc_m) := tnum_mul_simple_rec width a b (0, 0) (0, 0) in
     tnum_add acc_v acc_m.
 
-(* Z.quot: Truncating Division *)
-Definition tnum_uquot (a b: tnum): tnum :=
+(* Here is Truncating Division but I use Z.div instead of Z.quot
+   to be consistent with the divu definition in CompCert's Int64. *)
+Definition tnum_udiv (a b: tnum): tnum :=
   if Z.eqb (fst b) 0 then (0, -1) (* -1 represents unsigned_max *)
   else if Z.eqb (snd a) 0 && Z.eqb (snd b) 0 then
-    (Z.quot (fst a) (fst b), 0) (* concrete uquot *)
-  else let max_res := Z.quot (fst a + snd a) (fst b) in
+    (Z.div (fst a) (fst b), 0) (* concrete udiv *)
+  else let max_res := Z.div (fst a + snd a) (fst b) in
         (0, Z.ones (Z_size_Z max_res)).
 
 Definition Z_is_pow2 (n : Z) : bool :=
