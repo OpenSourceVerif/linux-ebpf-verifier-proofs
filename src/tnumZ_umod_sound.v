@@ -127,14 +127,6 @@ Proof.
   - rewrite (Z_testbit_neg_1 _ H0). apply andb_true_l.
 Qed.
 
-Lemma Z_land_ones_rem : forall a n : Z,
-  0 <= a -> 0 <= n -> Z.land a (Z.ones n) = Z.rem a (2 ^ n).
-Proof.
-  intros.
-  rewrite Z.rem_mod_nonneg; try lia. (* trans to Z.modulo then use Z.land_ones *)
-  apply (Z.land_ones _ _ H0).
-Qed.
-
 Lemma Z_pow_nonneg_rev : forall a b,
   0 < Z.pow a b -> 0 <= b.
 Proof.
@@ -153,37 +145,39 @@ Proof.
   apply (Z.log2_spec _ (Pos2Z.is_pos p)).
 Qed.
 
-Lemma rem_upper_bound: forall a b i j
+Lemma mod_upper_bound: forall a b i j
   (Ha_inv: tnum_ge_inv a)
   (Hb_inv: tnum_ge_inv b)
   (Hga: gamma a i)
   (Hgb: gamma b j),
-  0 < j -> Z.rem i j <= Z.ones (Z_size_Z (Z.min (fst a + snd a) (fst b + snd b))).
+  0 < j -> Z.modulo i j <= Z.ones (Z_size_Z (Z.min (fst a + snd a) (fst b + snd b))).
 Proof.
-  intros. pose proof (tnum_ge_inv_gamma _ _ Hga Ha_inv).
+  intros.
   pose proof (tnum_ge_inv_gamma_bound _ _ Hgb Hb_inv).
   destruct (Z.leb_spec j (fst a + snd a)).
-  - assert (Z.rem i j < j) by apply (Z.rem_bound_pos_pos _ _ H H0).
+  - assert (Z.modulo i j < j) by apply (Z.mod_pos_bound _ _ H).
     assert (0 < Z.min (fst a + snd a) (fst b + snd b)) by lia.
-    pose proof (Z_size_Z_upper_bound (Z.min (fst a + snd a) (fst b + snd b)) H4). lia.
-  - pose proof (tnum_ge_inv_gamma_bound _ _ Hga Ha_inv). destruct (Z.eqb_spec i 0).
+    pose proof (Z_size_Z_upper_bound (Z.min (fst a + snd a) (fst b + snd b)) H3). lia.
+  - pose proof (tnum_ge_inv_gamma _ _ Hga Ha_inv).
+    pose proof (tnum_ge_inv_gamma_bound _ _ Hga Ha_inv).
+    destruct (Z.eqb_spec i 0).
     { subst i. pose proof (Z_size_Z_nonneg (Z.min (fst a + snd a) (fst b + snd b))).
-      rewrite Z.rem_0_l; try lia. rewrite Z.ones_equiv. lia. }
-    assert (0 <= i < j) by lia. rewrite (Z.rem_small _ _ H4).
+      rewrite Z.mod_0_l; try lia. rewrite Z.ones_equiv. lia. }
+    assert (0 <= i < j) by lia. rewrite (Z.mod_small _ _ H4).
     assert (0 < Z.min (fst a + snd a) (fst b + snd b)) by lia.
     pose proof (Z_size_Z_upper_bound (Z.min (fst a + snd a) (fst b + snd b)) H5). lia.
 Qed.
 
-Lemma rem_ldiff_ones_0: forall a b i j
+Lemma mod_ldiff_ones_0: forall a b i j
   (Ha_inv: tnum_ge_inv a)
   (Hb_inv: tnum_ge_inv b)
   (Hga: gamma a i)
   (Hgb: gamma b j),
-  0 < j -> Z.ldiff (Z.rem i j) (Z.ones (Z_size_Z (Z.min (fst a + snd a) (fst b + snd b)))) = 0.
+  0 < j -> Z.ldiff (Z.modulo i j) (Z.ones (Z_size_Z (Z.min (fst a + snd a) (fst b + snd b)))) = 0.
 Proof.
   intros. apply (Z_ldiff_ones _ _ (Z_size_Z_nonneg _)). split.
-  - apply Z.rem_nonneg; try lia. apply (tnum_ge_inv_gamma _ _ Hga Ha_inv).
-  - apply (rem_upper_bound _ _ _ _ Ha_inv Hb_inv Hga Hgb H).
+  - apply Z_mod_nonneg_nonneg; try lia. apply (tnum_ge_inv_gamma _ _ Hga Ha_inv).
+  - apply (mod_upper_bound _ _ _ _ Ha_inv Hb_inv Hga Hgb H).
 Qed.
 
 Lemma Z_testbit_lt_lsb: forall x n,
@@ -218,18 +212,18 @@ Proof.
   assumption.
 Qed.
 
-Lemma tnum_urem_sound : forall a b i j
+Lemma tnum_umod_sound : forall a b i j
   (Ha_inv: tnum_ge_inv a)
   (Hb_inv: tnum_ge_inv b)
   (Hga: gamma a i)
   (Hgb: gamma b j),
-    gamma (tnum_urem a b) (Z.rem i j).
+    gamma (tnum_umod a b) (Z.modulo i j).
 Proof.
-  intros. unfold tnum_urem.
+  intros. unfold tnum_umod.
   destruct (Z.eqb_spec (fst b) 0) as [Hb_v0|Hb_v0].
   { unfold gamma. simpl. apply Z.land_0_r. }
   destruct (andb (snd a =? 0) (snd b =? 0)) eqn:H_m0.
-  (* Case 1: concrete urem *)
+  (* Case 1: concrete umod *)
   { apply andb_prop in H_m0; destruct H_m0 as [Ha_m0 Hb_m0].
     apply Z.eqb_eq in Ha_m0, Hb_m0. unfold gamma in *; simpl.
     rewrite Ha_m0, Z.lnot_0, Z.land_m1_r in Hga.
@@ -242,31 +236,31 @@ Proof.
     pose proof (tnum_ge_inv_gamma _ _ Hga Ha_inv).
     apply Z_pow2_equiv in Hp2. destruct Hp2 as [H1 [x H2]]. rewrite <- H2.
     rewrite <- H2 in H1. assert (0 <= x) by apply (Z_pow_nonneg_rev _ _ H1).
-    rewrite <- Z_land_ones_rem; try lia.
+    rewrite <- Z.land_ones; try lia.
     unfold gamma in *. simpl. rewrite Z.sub_1_r; rewrite <- Z.ones_equiv.
     rewrite <- Hga. rewrite <- !Z.ldiff_land. apply Z_ldiff_land_ones. }
   assert (0 < j) by apply (tnum_gt_inv_gamma _ _ Hgb Hb_inv Hb_v0).
-  unfold gamma; simpl. unfold get_low_bits.
+  unfold gamma; simpl. unfold mod_get_low_bits.
   destruct (Z.odd (fst b) || Z.odd (snd b)).
-  (* Case 3: get_low_bits return default (0, 1) *)
+  (* Case 3: mod_get_low_bits return default (0, 1) *)
   { unfold snd at 1. rewrite (Z_land_ones_neg_1 _ (Z_size_Z_nonneg _)) at 1. simpl.
-    rewrite <- Z.ldiff_land. apply (rem_ldiff_ones_0 _ _ _ _ Ha_inv Hb_inv Hga Hgb H). }
-  (* Case 4: get_low_bits return general value *)
+    rewrite <- Z.ldiff_land. apply (mod_ldiff_ones_0 _ _ _ _ Ha_inv Hb_inv Hga Hgb H). }
+  (* Case 4: mod_get_low_bits return general value *)
   set (mask := Z.ones (Z_size_Z (Z.min (fst a + snd a) (fst b + snd b)))).
   set (mask0 := Z.land (fst b + snd b) (- (fst b + snd b)) - 1).
   unfold snd at 1. unfold fst at 1. rewrite Z.lnot_land. rewrite Z.land_lor_distr_r.
   rewrite Z.lnot_lor; rewrite Z.lnot_lnot.
   rewrite Z.lnot_land; rewrite Z.land_lor_distr_l.
   rewrite (Z.land_comm (Z.lnot mask0)). rewrite Z.land_lnot_diag; rewrite Z.lor_0_r.
-  assert (Hrem_ldiff_ones: Z.land (Z.rem i j) (Z.lnot mask) = 0).
-  { rewrite <- Z.ldiff_land. apply (rem_ldiff_ones_0 _ _ _ _ Ha_inv Hb_inv Hga Hgb H). }
-  rewrite Hrem_ldiff_ones; rewrite Z.lor_0_r.
-  rewrite (Z_lor_recompose (Z.land (Z.rem i j) (Z.land (Z.lnot (snd a)) mask0)) mask).
-  rewrite (Z.land_comm (Z.rem i j)); rewrite <- (Z.land_assoc (Z.lnot (snd a))).
-  rewrite (Z.land_assoc (Z.lnot (snd a))); rewrite <- (Z.land_assoc _ (Z.rem i j)).
-  rewrite Hrem_ldiff_ones; rewrite Z.land_0_r; rewrite Z.lor_0_l.
+  assert (Hmod_ldiff_ones: Z.land (Z.modulo i j) (Z.lnot mask) = 0).
+  { rewrite <- Z.ldiff_land. apply (mod_ldiff_ones_0 _ _ _ _ Ha_inv Hb_inv Hga Hgb H). }
+  rewrite Hmod_ldiff_ones; rewrite Z.lor_0_r.
+  rewrite (Z_lor_recompose (Z.land (Z.modulo i j) (Z.land (Z.lnot (snd a)) mask0)) mask).
+  rewrite (Z.land_comm (Z.modulo i j)); rewrite <- (Z.land_assoc (Z.lnot (snd a))).
+  rewrite (Z.land_assoc (Z.lnot (snd a))); rewrite <- (Z.land_assoc _ (Z.modulo i j)).
+  rewrite Hmod_ldiff_ones; rewrite Z.land_0_r; rewrite Z.lor_0_l.
   rewrite <- (Z.land_assoc _ mask0); rewrite (Z.land_comm mask0).
-  assert (Z.land (Z.rem i j) mask0 = Z.land i mask0).
+  assert (Z.land (Z.modulo i j) mask0 = Z.land i mask0).
   { assert (Hlow: Z.land j mask0 = 0).
     { apply Z.bits_inj; unfold Z.eqf; intros. rewrite Z.land_spec. rewrite Z.bits_0.
       assert (Hn: n < 0 \/ 0 <= n) by lia. destruct Hn.
@@ -284,7 +278,6 @@ Proof.
     destruct Hmask_ones as [n [Hnge0 Hmask_ones]]. rewrite Hmask_ones.
     rewrite Hmask_ones in Hlow. rewrite (Z.land_ones _ _ Hnge0) in Hlow.
     apply Znumtheory.Zmod_divide in Hlow; try lia.
-    rewrite (Z.rem_mod_nonneg _ _ (tnum_ge_inv_gamma _ _ Hga Ha_inv) H).
     rewrite !Z.land_ones; try lia.
     rewrite <- (Znumtheory.Zmod_div_mod (2 ^ n) j); try lia. apply Hlow. }
   rewrite H0. rewrite Z.land_assoc. rewrite (Z.land_comm _ i).
