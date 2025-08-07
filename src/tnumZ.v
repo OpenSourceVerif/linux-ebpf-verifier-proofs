@@ -232,7 +232,7 @@ Definition Z_is_pow2 (n : Z) : bool :=
   (0 <? n) && (Z.land n (n - 1) =? 0).
 
 Definition Z_pow2 (n : Z) : Prop :=
-  0 < n /\ exists x, 2 ^ x = n.
+  0 < n /\ exists x, 0 <= x /\ 2 ^ x = n.
 
 Definition mod_get_low_bits (a b: tnum):tnum :=
   if Z.odd (fst b) || Z.odd (snd b) then (0, -1)

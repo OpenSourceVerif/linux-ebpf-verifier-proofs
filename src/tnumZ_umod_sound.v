@@ -15,7 +15,7 @@ Proof.
   - apply andb_prop in H; destruct H.
     apply Z.ltb_lt in H; apply Z.eqb_eq in H0. split. apply H.
     destruct (Z.eqb_spec x (2 ^ (Z.log2 x))).
-    + exists (Z.log2 x). lia.
+    + exists (Z.log2 x). split; apply Z.log2_nonneg + lia.
     + exfalso.
       apply Z.bits_inj_iff in H0; unfold Z.eqf in H0. specialize (H0 (Z.log2 x)).
       rewrite Z.land_spec in H0. rewrite Z.bits_0 in H0.
@@ -35,10 +35,10 @@ Proof.
         assert ((x - 1) / p = 1) by lia.
         rewrite H3. reflexivity. }
       rewrite Hbit1, Hbit2 in H0. lia.
-  - destruct H as [H [x0 H0]]. apply andb_true_iff. split; try lia.
-    apply Z.eqb_eq. rewrite <- H0. rewrite Z.sub_1_r; rewrite <- Z.ones_equiv.
+  - destruct H as [H [x0 [H0 H1]]]. apply andb_true_iff. split; try lia.
+    apply Z.eqb_eq. rewrite <- H1. rewrite Z.sub_1_r; rewrite <- Z.ones_equiv.
     rewrite Z.land_ones. apply Z_mod_same_full.
-    rewrite <- H0 in H. destruct x0; try lia. discriminate.
+    rewrite <- H1 in H. destruct x0; try lia.
 Qed.
 
 Lemma or_m_same_and_eq: forall x,
@@ -234,8 +234,8 @@ Proof.
   { apply andb_prop in Hp; destruct Hp as [Hp1 Hp2]; apply Z.eqb_eq in Hp1.
     apply (gamma_const_uniq _ _ Hp1) in Hgb; rewrite <- Hgb in *.
     pose proof (tnum_ge_inv_gamma _ _ Hga Ha_inv).
-    apply Z_pow2_equiv in Hp2. destruct Hp2 as [H1 [x H2]]. rewrite <- H2.
-    rewrite <- H2 in H1. assert (0 <= x) by apply (Z_pow_nonneg_rev _ _ H1).
+    apply Z_pow2_equiv in Hp2. destruct Hp2 as [H1 [x [H2 H3]]]. rewrite <- H3.
+    rewrite <- H3 in H1. assert (0 <= x) by apply (Z_pow_nonneg_rev _ _ H1).
     rewrite <- Z.land_ones; try lia.
     unfold gamma in *. simpl. rewrite Z.sub_1_r; rewrite <- Z.ones_equiv.
     rewrite <- Hga. rewrite <- !Z.ldiff_land. apply Z_ldiff_land_ones. }
@@ -272,8 +272,9 @@ Proof.
       rewrite <- (gamma_testbit_mask_false_Z (fst b) (snd b) j n Hgb H2 H0). apply H1. }
     assert (Hmask_ones: exists n, 0 <= n /\ mask0 = Z.ones n).
     { pose proof (Z_lsb_is_pow2 (fst b + snd b)). unfold Z_pow2 in H0.
-      destruct H0. unfold tnum_ge_inv in Hb_inv. lia. destruct H1. rewrite <- H1 in H0.
-      subst mask0. rewrite <- H1. exists x. split.
+      destruct H0. unfold tnum_ge_inv in Hb_inv. lia.
+      destruct H1 as [x [H1 H2]]. rewrite <- H2 in H0.
+      subst mask0. rewrite <- H2. exists x. split.
       apply (Z_pow_nonneg_rev _ _ H0). rewrite Z.ones_equiv. reflexivity. }
     destruct Hmask_ones as [n [Hnge0 Hmask_ones]]. rewrite Hmask_ones.
     rewrite Hmask_ones in Hlow. rewrite (Z.land_ones _ _ Hnge0) in Hlow.
