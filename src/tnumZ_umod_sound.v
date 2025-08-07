@@ -117,14 +117,13 @@ Proof.
     rewrite orb_false_r. rewrite! andb_true_r. reflexivity.
 Qed.
 
-Lemma Z_land_ones_neg_1 : forall x,
-  0 <= x -> Z.land (-1) (Z.ones x) = Z.ones x.
+Lemma Z_land_neg_1 : forall x, Z.land (-1) x = x.
 Proof.
   intros. apply Z.bits_inj. unfold Z.eqf. intros.
   rewrite Z.land_spec. assert (n < 0 \/ 0 <= n) by lia.
-  destruct H0.
+  destruct H.
   - destruct n; try lia. reflexivity.
-  - rewrite (Z_testbit_neg_1 _ H0). apply andb_true_l.
+  - rewrite (Z_testbit_neg_1 _ H). apply andb_true_l.
 Qed.
 
 Lemma Z_pow_nonneg_rev : forall a b,
@@ -137,12 +136,13 @@ Proof.
 Qed.
 
 Lemma Z_size_Z_upper_bound: forall x, 
-  0 < x -> x <= Z.ones (Z_size_Z x).
+  0 <= x -> x <= Z.ones (Z_size_Z x).
 Proof.
   intros. unfold Z_size_Z. destruct x; try lia.
-  rewrite Z.ones_equiv. apply Z.lt_le_pred.
-  rewrite (Z.abs_eq _ (Pos2Z.is_nonneg p)). rewrite Z.add_1_r.
-  apply (Z.log2_spec _ (Pos2Z.is_pos p)).
+  - rewrite Z.ones_equiv. lia.
+  - rewrite Z.ones_equiv. apply Z.lt_le_pred.
+    rewrite (Z.abs_eq _ (Pos2Z.is_nonneg p)). rewrite Z.add_1_r.
+    apply (Z.log2_spec _ (Pos2Z.is_pos p)).
 Qed.
 
 Lemma mod_upper_bound: forall a b i j
@@ -156,7 +156,7 @@ Proof.
   pose proof (tnum_ge_inv_gamma_bound _ _ Hgb Hb_inv).
   destruct (Z.leb_spec j (fst a + snd a)).
   - assert (Z.modulo i j < j) by apply (Z.mod_pos_bound _ _ H).
-    assert (0 < Z.min (fst a + snd a) (fst b + snd b)) by lia.
+    assert (0 <= Z.min (fst a + snd a) (fst b + snd b)) by lia.
     pose proof (Z_size_Z_upper_bound (Z.min (fst a + snd a) (fst b + snd b)) H3). lia.
   - pose proof (tnum_ge_inv_gamma _ _ Hga Ha_inv).
     pose proof (tnum_ge_inv_gamma_bound _ _ Hga Ha_inv).
@@ -164,7 +164,7 @@ Proof.
     { subst i. pose proof (Z_size_Z_nonneg (Z.min (fst a + snd a) (fst b + snd b))).
       rewrite Z.mod_0_l; try lia. rewrite Z.ones_equiv. lia. }
     assert (0 <= i < j) by lia. rewrite (Z.mod_small _ _ H4).
-    assert (0 < Z.min (fst a + snd a) (fst b + snd b)) by lia.
+    assert (0 <= Z.min (fst a + snd a) (fst b + snd b)) by lia.
     pose proof (Z_size_Z_upper_bound (Z.min (fst a + snd a) (fst b + snd b)) H5). lia.
 Qed.
 
@@ -243,7 +243,7 @@ Proof.
   unfold gamma; simpl. unfold mod_get_low_bits.
   destruct (Z.odd (fst b) || Z.odd (snd b)).
   (* Case 3: mod_get_low_bits return default (0, 1) *)
-  { unfold snd at 1. rewrite (Z_land_ones_neg_1 _ (Z_size_Z_nonneg _)) at 1. simpl.
+  { unfold snd at 1. rewrite Z_land_neg_1. simpl.
     rewrite <- Z.ldiff_land. apply (mod_ldiff_ones_0 _ _ _ _ Ha_inv Hb_inv Hga Hgb H). }
   (* Case 4: mod_get_low_bits return general value *)
   set (mask := Z.ones (Z_size_Z (Z.min (fst a + snd a) (fst b + snd b)))).
