@@ -91,6 +91,20 @@ Proof.
       lia.
 Qed.
 
+Lemma Z_lsb_range : forall x k,
+  0 < x <= 2 ^ k - 1 -> 0 < Z.land x (-x) <= 2 ^ k - 1.
+Proof.
+  intros x k Hx.
+  destruct Hx as [Hxlow Hxhigh].
+  assert (Hpow2 : Z_pow2 (Z.land x (- x))) by (apply Z_lsb_is_pow2; apply Hxlow).
+  destruct Hpow2 as [Hgt0 [k0 [Hge0 Heq]]].
+  split.
+  - rewrite <- Heq. apply Z.pow_pos_nonneg; lia.
+  - apply (Z.le_trans _ x).
+    + apply Z_land_leb. lia.
+    + apply Hxhigh.
+Qed.
+
 Lemma Z_testbit_neg_1 : forall n,
   0 <= n -> Z.testbit (-1) n = true.
 Proof.
