@@ -9,6 +9,8 @@ Import ListNotations.
 Definition mem_tnum (x: int64) (a: tnum): bool :=
   Int64.eq (Int64.and x (Int64.not (snd a))) (fst a).
 
+Definition wf_tnum (a: tnum): Prop :=
+  (Int64.and (fst a) (snd a) = Int64.zero).
 
 Lemma int64_eq_if_same:
   forall x y : int64, x = y <-> Int64.eq x y = true.
@@ -16,6 +18,21 @@ Proof.
   intros.
   generalize (Int64.eq_spec x y).
   destruct (Int64.eq x y); intuition congruence.
+Qed.
+
+(** gamma definition implies wf *)
+Lemma mem_imply_wf: forall va ma i,
+  mem_tnum i (va, ma) = true ->
+  wf_tnum (va, ma).
+Proof.
+  unfold mem_tnum, wf_tnum; simpl.
+  intros va ma i Hg.
+  apply int64_eq_if_same in Hg.
+  subst.
+  rewrite Int64.and_assoc.
+  rewrite Int64.and_commut with (y := ma).
+  rewrite Int64.and_not_self.
+  apply Int64.and_zero.
 Qed.
 
 Open Scope Z_scope.
@@ -63,6 +80,21 @@ Proof.
   rewrite Int64.bits_not by lia.
   rewrite Z.lnot_spec by lia.
   reflexivity.
+Qed.
+
+Lemma mem_tnum_range: forall x a, mem_tnum x a = true ->
+  Int64.unsigned (fst a) + Int64.unsigned (snd a) <= Int64.max_unsigned.
+Proof.
+  intros. apply mem_imply_wf in H. clear x.
+  unfold wf_tnum in H; simpl in H.
+  assert (Int64.unsigned (Int64.and (fst a) (snd a)) = Int64.unsigned (Int64.zero)).
+  { f_equal. apply H. }
+  rewrite <- Zland_and in H0.
+  rewrite Int64.unsigned_zero in H0.
+  apply (Z.add_nocarry_lt_pow2 _ _ 64) in H0.
+  - unfold Int64.max_unsigned; simpl. lia.
+  - apply Int64.unsigned_range.
+  - apply Int64.unsigned_range.
 Qed.
 
 
@@ -698,8 +730,7 @@ Theorem tnum_udiv_sound :
          (GEA : tnum_ge_inv (to_tnumZ a))
          (GEB : tnum_ge_inv (to_tnumZ b))
          (MEMA : mem_tnum i a = true)
-         (MEMB : mem_tnum j b = true)
-         (Hrange_A : Int64.unsigned (fst a) + Int64.unsigned (snd a) <= Int64.max_unsigned),
+         (MEMB : mem_tnum j b = true),
     mem_tnum (Int64.divu i j) (tnum_udiv a b) = true.
 Proof.
   intros.
@@ -709,6 +740,7 @@ Proof.
   - intros.
     apply testbit_divu ; auto.
   - apply tnum_udiv_eq; auto.
+    apply (mem_tnum_range _ _ MEMA).
 Qed.
 
 Theorem tnum_umod_sound :
@@ -716,9 +748,7 @@ Theorem tnum_umod_sound :
          (GEA : tnum_ge_inv (to_tnumZ a))
          (GEB : tnum_ge_inv (to_tnumZ b))
          (MEMA : mem_tnum i a = true)
-         (MEMB : mem_tnum j b = true)
-         (Hrange_A : Int64.unsigned (fst a) + Int64.unsigned (snd a) <= Int64.max_unsigned)
-         (Hrange_B : Int64.unsigned (fst b) + Int64.unsigned (snd b) <= Int64.max_unsigned),
+         (MEMB : mem_tnum j b = true),
          mem_tnum (Int64.modu i j) (tnum_umod a b) = true.
 Proof.
   intros.
@@ -728,4 +758,6 @@ Proof.
   - intros.
     apply testbit_modu ; auto.
   - apply tnum_umod_eq; auto.
+    apply (mem_tnum_range _ _ MEMA).
+    apply (mem_tnum_range _ _ MEMB).
 Qed.
