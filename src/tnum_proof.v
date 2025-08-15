@@ -1,7 +1,7 @@
 From Coq Require Import List ZArith Lia Bool.
 From compcert.lib Require Import Integers.
 (*From bpf.src Require Import tnum. *)
-Require Import tnumZ tnumZ_inv tnumZ_add_sound tnumZ_sub_sound tnumZ_mul_sound tnumZ_udiv_sound tnumZ_umod_sound.
+Require Import tnumZ tnumZ_inv tnumZ_add_sound tnumZ_sub_sound tnumZ_mul_sound tnumZ_udiv_sound tnumZ_umod_sound tnumZ_shift_sound tnumZ_mod_eq.
 Require Import tnum.
 
 Import ListNotations.
@@ -70,6 +70,26 @@ Proof.
     lia. lia.
 Qed.
 
+Lemma Zlor_or : forall x y,
+    Z.lor (Int64.unsigned x) (Int64.unsigned y) = Int64.unsigned (Int64.or x y).
+Proof.
+  intros.
+  unfold Int64.or.
+  rewrite Int64.unsigned_repr_eq.
+  change Int64.modulus with (2^64).
+  apply Z.bits_inj; unfold Z.eqf; intros.
+  assert (n < 0 \/ 0 <= n < 64 \/ n >= 64) by lia.
+  destruct H as [H | [H | H]].
+  - repeat rewrite Z.testbit_neg_r; auto.
+  - rewrite Z.mod_pow2_bits_low; reflexivity + lia.
+  - rewrite Z.lor_spec.
+    rewrite <- (Z.mod_small (Int64.unsigned x) (2^64)).
+    2:{ apply Int64.unsigned_range. }
+    rewrite <- (Z.mod_small (Int64.unsigned y) (2^64)).
+    2:{ apply Int64.unsigned_range. }
+    rewrite !Z.mod_pow2_bits_high; try lia.
+Qed.
+
 Lemma Zlnot_not : forall x,
     forall n , 0 <= n < Int64.zwordsize ->
     Z.testbit (Z.lnot (Int64.unsigned x)) n = Z.testbit (Int64.unsigned (Int64.not x)) n.
@@ -106,6 +126,43 @@ Definition to_tnumZ (x : tnum)  :=
 
 Definition of_tnumZ (x : tnumZ.tnum)  :=
   (Int64.repr (fst x) , Int64.repr (snd x)).
+
+Lemma tnumZ_tnum_id_eq : forall x,
+  to_tnumZ (of_tnumZ x) = mod_pair x Int64.modulus.
+Proof.
+  intros. unfold mod_pair.
+  unfold to_tnumZ, of_tnumZ. simpl.
+  f_equal; apply Int64.unsigned_repr_eq; lia.
+Qed.
+
+Lemma tnum_tnumZ_id : forall x,
+  of_tnumZ (to_tnumZ x) = x.
+Proof.
+  intros.
+  unfold to_tnumZ, of_tnumZ. simpl.
+  rewrite surjective_pairing.
+  f_equal; apply Int64.repr_unsigned.
+Qed.
+
+Lemma tnum_shiftl_eq: forall x,
+  tnum_lshift x Byte.one = of_tnumZ (tnumZ.tnum_lshift (to_tnumZ x) 1).
+Proof.
+  intros. unfold tnum_lshift, tnumZ.tnum_lshift.
+  unfold of_tnumZ. f_equal.
+Qed.
+
+Lemma tnum_shiftr_eq: forall x,
+  tnum_rshift x Byte.one = of_tnumZ (tnumZ.tnum_rshift (to_tnumZ x) 1).
+Proof.
+  intros. unfold tnum_rshift, tnumZ.tnum_rshift.
+  unfold of_tnumZ. f_equal.
+Qed.
+
+Lemma to_tnumZ_ifelse: forall (c : bool) x1 x2,
+  to_tnumZ (if c then x1 else x2) = if c then (to_tnumZ x1) else (to_tnumZ x2).
+Proof.
+  intros. destruct c; reflexivity.
+Qed.
 
 Lemma mem_tnum_gamma : forall i a,
     mem_tnum i a = true ->
@@ -152,6 +209,16 @@ Proof.
   reflexivity.
 Qed.
 
+Lemma testbit_mul : forall i x y,
+    0 <= i < Int64.zwordsize ->
+    Int64.testbit (Int64.mul x y) i =
+      Z.testbit (Int64.unsigned x * Int64.unsigned y) i.
+Proof.
+  intros. unfold Int64.mul.
+  rewrite Int64.testbit_repr by auto.
+  reflexivity.
+Qed.
+
 Lemma testbit_divu : forall i x y,
     0 <= i < Int64.zwordsize ->
     Int64.testbit (Int64.divu x y) i =
@@ -194,24 +261,12 @@ Proof.
 Qed.
 *)
 
-Lemma testbit_mod : forall n i a b,
-    0 <= i < n ->
-    a mod (2 ^ n) = b mod (2 ^ n) ->
-    Z.testbit a i = Z.testbit b i.
-Proof.
-  intros.
-  rewrite <- Z.mod_pow2_bits_low with (n:=n) by lia.
-  rewrite H0.
-  rewrite Z.mod_pow2_bits_low with (n:=n) by lia.
-  reflexivity.
-Qed.
-
 Lemma testbit_pow2 : forall n i a,
     0 <= i < n ->
     Z.testbit a i = Z.testbit (a + 2 ^ n) i.
 Proof.
   intros.
-  apply (testbit_mod _ _ _ _ H).
+  apply (Z_testbit_mod _ _ _ _ H).
   rewrite <- (Z_mod_plus _ 1).
   rewrite Z.mul_1_l. reflexivity.
   lia.
@@ -244,7 +299,7 @@ Proof.
     f_equal.
     +
       rewrite! testbit_add by auto.
-      apply testbit_mod with (n:= Int64.zwordsize);auto.
+      apply Z_testbit_mod with (n:= Int64.zwordsize);auto.
       unfold Int64.add.
       rewrite! Int64.unsigned_repr_eq.
       change Int64.modulus with (2^Int64.zwordsize).
@@ -264,7 +319,7 @@ Proof.
     f_equal.
     f_equal.
     rewrite! testbit_add by auto.
-    apply testbit_mod with (n:= Int64.zwordsize);auto.
+    apply Z_testbit_mod with (n:= Int64.zwordsize);auto.
     unfold Int64.add.
     rewrite! Int64.unsigned_repr_eq.
     change Int64.modulus with (2^Int64.zwordsize).
@@ -298,7 +353,7 @@ Proof.
     f_equal.
     f_equal.
     + rewrite! testbit_add by auto.
-      apply testbit_mod with (n:= Int64.zwordsize);auto.
+      apply Z_testbit_mod with (n:= Int64.zwordsize);auto.
       unfold Int64.sub.
       rewrite! Int64.unsigned_repr_eq.
       change Int64.modulus with (2^Int64.zwordsize).
@@ -329,7 +384,7 @@ Proof.
     f_equal.
     f_equal.
     + rewrite! testbit_add by auto.
-      apply testbit_mod with (n:= Int64.zwordsize);auto.
+      apply Z_testbit_mod with (n:= Int64.zwordsize);auto.
       unfold Int64.sub.
       rewrite! Int64.unsigned_repr_eq.
       change Int64.modulus with (2^Int64.zwordsize).
@@ -348,6 +403,158 @@ Proof.
         rewrite <- testbit_pow2 with (n := Int64.zwordsize);auto.
       * rewrite Int64.unsigned_zero. simpl.
         rewrite Z.add_0_r. reflexivity.
+Qed.
+
+Lemma Int64_repr_mod : forall x y,
+  x mod Int64.modulus = y mod Int64.modulus ->
+  Int64.repr x = Int64.repr y.
+Proof.
+  intros.
+  apply Int64.eqm_samerepr.
+  apply Int64.eqm_same_bits.
+  intros. apply (Z_testbit_mod 64).
+  apply H0. apply H.
+Qed.
+
+Lemma tnum_mul_rec_eq : forall n a b acc_m,
+    0 <= Z.of_nat n <= 64 ->
+    tnum_mul_rec n a b acc_m =
+      of_tnumZ (tnumZ.tnum_mul_rec n (to_tnumZ a) (to_tnumZ b) (to_tnumZ acc_m)).
+Proof.
+  intros n. induction n as [| n' IHn'].
+  - intros. simpl. rewrite tnum_tnumZ_id. reflexivity.
+  - intros. unfold tnum_mul_rec; fold tnum_mul_rec.
+    unfold tnumZ.tnum_mul_rec; fold tnumZ.tnum_mul_rec.
+    rewrite IHn'.
+    2:{ lia. }
+    unfold of_tnumZ. simpl.
+    assert (Hmod_eq: forall f,
+      mod_pair
+      (tnumZ.tnum_mul_rec n' (mod_pair (tnumZ.tnum_rshift (to_tnumZ a) 1) (2^64))
+      (mod_pair (tnumZ.tnum_lshift (to_tnumZ b) 1) (2^64))
+      (mod_pair f (2^64))) (2^64) =
+      mod_pair
+      (tnumZ.tnum_mul_rec n' (tnumZ.tnum_rshift (to_tnumZ a) 1)
+      (tnumZ.tnum_lshift (to_tnumZ b) 1)
+      f) (2^64)
+    ).
+    { intros.
+      pose proof tnum_rshift1_range.
+      apply tnum_mul_rec_mod_eq;
+      lia + (apply H0; unfold to_tnumZ; simpl; apply Int64.unsigned_range). }
+    f_equal.
+    + rewrite tnum_shiftl_eq, tnum_shiftr_eq.
+      rewrite !tnumZ_tnum_id_eq.
+      rewrite !to_tnumZ_ifelse.
+      assert (Hcond: forall x, Int64.eq (Int64.and x Int64.one) Int64.one
+              = (Z.land (Int64.unsigned x) 1 =? 1)).
+      { intros. unfold Int64.eq. rewrite <- Zland_and. rewrite Int64.unsigned_one.
+        destruct (Z.eqb_spec (Z.land (Int64.unsigned x) 1) 1) as [E|E].
+        - rewrite E. reflexivity.
+        - apply Coqlib.zeq_false. apply E. }
+      rewrite !Hcond; clear Hcond.
+      destruct (Z.land (Int64.unsigned (fst a)) 1 =? 1).
+      { rewrite tnum_add_eq.
+        rewrite tnumZ_tnum_id_eq.
+        change (to_tnumZ (Int64.zero, snd b)) with (0, Int64.unsigned (snd b)).
+        apply Int64_repr_mod.
+        specialize (Hmod_eq (tnumZ.tnum_add (to_tnumZ acc_m) (0, Int64.unsigned (snd b)))).
+        injection Hmod_eq as Hmod_eq1 Hmod_eq2.
+        apply Hmod_eq1. }
+      destruct (Z.land (Int64.unsigned (snd a)) 1 =? 1).
+      { rewrite tnum_add_eq.
+        rewrite tnumZ_tnum_id_eq.
+        change (to_tnumZ (Int64.zero, Int64.or (fst b) (snd b)))
+        with (0, Int64.unsigned (Int64.or (fst b) (snd b))).
+        rewrite Zlor_or.
+        apply Int64_repr_mod.
+        specialize (Hmod_eq (tnumZ.tnum_add (to_tnumZ acc_m) (0, Int64.unsigned (Int64.or (fst b) (snd b))))).
+        injection Hmod_eq as Hmod_eq1 Hmod_eq2.
+        apply Hmod_eq1. }
+      apply Int64_repr_mod.
+      assert (to_tnumZ acc_m = mod_pair (to_tnumZ acc_m) (2^64)).
+      { unfold to_tnumZ. unfold mod_pair. simpl.
+        f_equal; rewrite Z.mod_small; reflexivity + apply Int64.unsigned_range. }
+      rewrite H0 at 1; clear H0.
+      specialize (Hmod_eq (to_tnumZ acc_m)).
+      injection Hmod_eq as Hmod_eq1 Hmod_eq2.
+      apply Hmod_eq1.
+    + rewrite tnum_shiftl_eq, tnum_shiftr_eq.
+      rewrite !tnumZ_tnum_id_eq.
+      rewrite !to_tnumZ_ifelse.
+      assert (Hcond: forall x, Int64.eq (Int64.and x Int64.one) Int64.one
+              = (Z.land (Int64.unsigned x) 1 =? 1)).
+      { intros. unfold Int64.eq. rewrite <- Zland_and. rewrite Int64.unsigned_one.
+        destruct (Z.eqb_spec (Z.land (Int64.unsigned x) 1) 1) as [E|E].
+        - rewrite E. reflexivity.
+        - apply Coqlib.zeq_false. apply E. }
+      rewrite !Hcond; clear Hcond.
+      destruct (Z.land (Int64.unsigned (fst a)) 1 =? 1).
+      { rewrite tnum_add_eq.
+        rewrite tnumZ_tnum_id_eq.
+        change (to_tnumZ (Int64.zero, snd b)) with (0, Int64.unsigned (snd b)).
+        apply Int64_repr_mod.
+        specialize (Hmod_eq (tnumZ.tnum_add (to_tnumZ acc_m) (0, Int64.unsigned (snd b)))).
+        injection Hmod_eq as Hmod_eq1 Hmod_eq2.
+        apply Hmod_eq2. }
+      destruct (Z.land (Int64.unsigned (snd a)) 1 =? 1).
+      { rewrite tnum_add_eq.
+        rewrite tnumZ_tnum_id_eq.
+        change (to_tnumZ (Int64.zero, Int64.or (fst b) (snd b)))
+        with (0, Int64.unsigned (Int64.or (fst b) (snd b))).
+        rewrite Zlor_or.
+        apply Int64_repr_mod.
+        specialize (Hmod_eq (tnumZ.tnum_add (to_tnumZ acc_m) (0, Int64.unsigned (Int64.or (fst b) (snd b))))).
+        injection Hmod_eq as Hmod_eq1 Hmod_eq2.
+        apply Hmod_eq2. }
+      apply Int64_repr_mod.
+      assert (to_tnumZ acc_m = mod_pair (to_tnumZ acc_m) (2^64)).
+      { unfold to_tnumZ. unfold mod_pair. simpl.
+        f_equal; rewrite Z.mod_small; reflexivity + apply Int64.unsigned_range. }
+      rewrite H0 at 1; clear H0.
+      specialize (Hmod_eq (to_tnumZ acc_m)).
+      injection Hmod_eq as Hmod_eq1 Hmod_eq2.
+      apply Hmod_eq2.
+Qed.
+
+Lemma tnum_mul_eq : forall a b (width : nat),
+    0 <= (Z.of_nat width) <= 64 ->
+    tnum_mul a b width =
+      of_tnumZ (tnumZ.tnum_mul (to_tnumZ a) (to_tnumZ b) width).
+Proof.
+  intros. unfold tnum_mul, tnumZ.tnum_mul.
+  rewrite tnum_add_eq.
+  change (to_tnumZ (Int64.mul (fst a) (fst b), Int64.zero)) with
+  (Int64.unsigned (Int64.mul (fst a) (fst b)), 0).
+  change (fst (to_tnumZ a) * fst (to_tnumZ b), 0) with
+  ((Int64.unsigned (fst a)) * (Int64.unsigned (fst b)), 0).
+  unfold of_tnumZ.
+  rewrite tnum_mul_rec_eq; try lia.
+  change (to_tnumZ (Int64.zero, Int64.zero)) with (0, 0).
+  assert (Hmod_eq:
+    mod_pair (tnumZ.tnum_add 
+      (mod_pair (Int64.unsigned (fst a) * Int64.unsigned (fst b), 0) (2^64))
+      (mod_pair (tnumZ.tnum_mul_rec width (to_tnumZ a) (to_tnumZ b) (0, 0)) (2^64))) (2^64) =
+    mod_pair (tnumZ.tnum_add
+      (Int64.unsigned (fst a) * Int64.unsigned (fst b), 0)
+      (tnumZ.tnum_mul_rec width (to_tnumZ a) (to_tnumZ b) (0, 0))) (2^64)).
+  { apply tnumZ_add_mod; lia + apply pair_mod_mod. }
+  injection Hmod_eq as Hmod_eq1 Hmod_eq2.
+  assert ((Int64.unsigned (Int64.mul (fst a) (fst b)), 0) = 
+  mod_pair (Int64.unsigned (fst a) * Int64.unsigned (fst b), 0) (2^64)).
+  { unfold mod_pair. f_equal. unfold fst at 3.
+    apply Z.bits_inj; unfold Z.eqf; intros.
+    assert (n < 0 \/ 0 <= n < 64 \/ n >= 64) by lia.
+    destruct H0 as [H0 | [H0 | H0]].
+    - repeat rewrite Z.testbit_neg_r; auto.
+    - rewrite !Z.mod_pow2_bits_low; try lia.
+      apply testbit_mul; auto.
+    - rewrite <- (Z.mod_small (Int64.unsigned (Int64.mul (fst a) (fst b))) (2^64)).
+      2:{ apply Int64.unsigned_range. }
+      rewrite !Z.mod_pow2_bits_high; try lia. }
+  rewrite H0; clear H0.
+  rewrite tnumZ_tnum_id_eq.
+  f_equal; apply Int64_repr_mod; apply Hmod_eq1 + apply Hmod_eq2.
 Qed.
 
 Lemma Int64_unsigned_add_nonneg : forall (x y : int64),
@@ -447,8 +654,8 @@ Proof.
   intros.
   change Int64.modulus with (2^(Z.of_nat Int64.wordsize)) in *.
   rewrite !Z.lor_spec.
-  rewrite (testbit_mod (Z.of_nat Int64.wordsize) _ a c); try lia.
-  rewrite (testbit_mod (Z.of_nat Int64.wordsize) _ b d); try lia.
+  rewrite (Z_testbit_mod (Z.of_nat Int64.wordsize) _ a c); try lia.
+  rewrite (Z_testbit_mod (Z.of_nat Int64.wordsize) _ b d); try lia.
   reflexivity.
 Qed.
 
@@ -681,6 +888,68 @@ Proof.
   - intros.
     apply testbit_sub ; auto.
   - apply tnum_sub_eq.
+Qed.
+
+Theorem tnum_binary_sound_ge_0_width :
+  forall a b i j f tnum_f tnum_fz fz
+         (TNUM_FZ_SOUND : forall a i b j,
+            tnum_ge_inv a -> tnum_ge_inv b -> gamma a i -> gamma b j -> gamma (tnum_fz a b (Z_size i)) (fz i j))
+         (FFZ : forall n,  0 <= n < Int64.zwordsize ->
+                           forall i j ,  (Int64.testbit (f i j) n = Z.testbit (fz (Int64.unsigned i) (Int64.unsigned j)) n))
+         (GEA : tnum_ge_inv (to_tnumZ a))
+         (GEB : tnum_ge_inv (to_tnumZ b))
+         (MEMA : mem_tnum i a = true)
+         (MEMB : mem_tnum j b = true)
+         (EQ : tnum_f a b (Z_size (Int64.unsigned i)) = of_tnumZ (tnum_fz (to_tnumZ a) (to_tnumZ b) (Z_size (Int64.unsigned i))))
+  ,
+    mem_tnum (f i j) (tnum_f a b (Z_size (Int64.unsigned i))) = true.
+Proof.
+  intros.
+  apply mem_tnum_gamma in MEMA.
+  apply mem_tnum_gamma in MEMB.
+  rewrite EQ.
+  specialize (TNUM_FZ_SOUND _ _ _ _ GEA GEB MEMA MEMB).
+  revert TNUM_FZ_SOUND.
+  unfold to_tnumZ.
+  generalize (Int64.unsigned (fst a), Int64.unsigned (snd a)) as az.
+  generalize (Int64.unsigned (fst b), Int64.unsigned (snd b)) as bz.
+  intros bz az.
+  generalize (tnum_fz az bz) as r.
+  destruct r.
+  unfold gamma. simpl in *. intros. subst.
+  unfold mem_tnum.
+  simpl.
+  apply int64_eq_if_same.
+  apply Int64.same_bits_eq.
+  intros.
+  rewrite Int64.testbit_repr by auto.
+  rewrite Int64.bits_and by auto.
+  rewrite Z.land_spec.
+  rewrite Z.lnot_spec by lia.
+  rewrite Int64.bits_not by auto.
+  rewrite! Int64.testbit_repr by auto.
+  rewrite FFZ. reflexivity.
+  auto.
+Qed.
+
+Theorem tnum_mul_sound :
+  forall a b i j
+         (GEA : tnum_ge_inv (to_tnumZ a))
+         (GEB : tnum_ge_inv (to_tnumZ b))
+         (MEMA : mem_tnum i a = true)
+         (MEMB : mem_tnum j b = true),
+    mem_tnum (Int64.mul i j) (tnum_mul a b (Z_size (Int64.unsigned i))) = true.
+Proof.
+  intros.
+  apply tnum_binary_sound_ge_0_width with (tnum_fz := tnumZ.tnum_mul) (fz:= Z.mul); auto.
+  - intros.
+    apply tnumZ_mul_sound.tnum_mul_sound; auto.
+  - intros.
+    apply testbit_mul ; auto.
+  - apply tnum_mul_eq.
+    rewrite Z_size_equiv.
+    apply Z_size_range_Int64.
+    apply Int64.unsigned_range_2.
 Qed.
 
 Theorem tnum_binary_sound_ge_0 :

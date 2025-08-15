@@ -531,6 +531,15 @@ Proof.
     apply pos_pred_n_diff_le.
 Qed.
 
+Lemma Z_land_leb_r: forall i j,
+  0 <= j ->
+  Z.land i j <= j.
+Proof.
+  intros.
+  rewrite Z.land_comm.
+  apply (Z_land_leb _ _ H).
+Qed.
+
 Lemma Z_land_1_eq: forall i,
   Z.land i 1 = 0 \/ Z.land i 1 = 1.
 Proof.

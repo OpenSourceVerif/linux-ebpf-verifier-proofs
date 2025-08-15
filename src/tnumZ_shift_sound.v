@@ -13,6 +13,18 @@ Proof.
   intros. simpl. reflexivity.
 Qed.
 
+Lemma tnum_rshift1_range : forall x k,
+  0 <= x < 2^k -> 0 <= Z.shiftr x 1 < 2^k.
+Proof.
+  intros. split.
+  - apply Z.shiftr_nonneg. lia.
+  - rewrite Z.shiftr_div_pow2.
+    2:{ lia. }
+    assert (x / 2 ^ 1 <= x).
+    { rewrite <- (Z.div_1_r x) at 2. apply Z.div_le_compat_l; lia. }
+    apply (Z.le_lt_trans _ x); lia.
+Qed.
+
 Lemma tnum_lshift_sound : forall a i shift,
     gamma a i ->
     gamma (tnum_lshift a shift) (Z.shiftl i shift).

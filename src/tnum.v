@@ -96,30 +96,38 @@ Definition tnum_xor (a b: tnum): tnum :=
   let mu  := Int64.or (snd a) (snd b) in
     (Int64.and v (Int64.not mu), mu).
 
-Fixpoint tnum_mul_rec (a b: tnum) (fuel: nat) (acc_m: tnum): tnum :=
+Fixpoint tnum_mul_rec_early_ret (fuel: nat) (a b acc_m: tnum) : tnum :=
   match fuel with
   | O => acc_m
   | S n =>
     if orb (negb (Int64.eq (fst a) Int64.zero))
            (negb (Int64.eq (snd a) Int64.zero)) then
-      let acc_m :=
-        if negb (Int64.eq (Int64.and (fst a) Int64.one) Int64.zero) then
-          tnum_add acc_m (Int64.zero, snd b)
-        else if negb (Int64.eq (Int64.and (snd a) Int64.one) Int64.zero) then
-          tnum_add acc_m (Int64.zero, Int64.or (fst b) (snd b))
-        else acc_m  in
-      let a := tnum_rshift a Byte.one in
-      let b := tnum_lshift b Byte.one in
-        tnum_mul_rec a b n acc_m
+      let c1 := negb (Int64.eq (Int64.and (fst a) Int64.one) Int64.zero) in
+      let c2 := negb (Int64.eq (Int64.and (snd a) Int64.one) Int64.zero) in
+      let acc_m := if c1 then tnum_add acc_m (Int64.zero, snd b)
+                    else if c2 then tnum_add acc_m (Int64.zero, Int64.or (fst b) (snd b))
+                    else acc_m in
+        tnum_mul_rec_early_ret n (tnum_rshift a Byte.one) (tnum_lshift b Byte.one) acc_m
     else
       acc_m
   end.
 
-Definition tnum_mul (a b: tnum): tnum :=
-  let acc_v := Int64.mul (fst a) (fst b) in
-  let acc_m := (Int64.zero, Int64.zero) in
-  let res := tnum_mul_rec a b 64 acc_m in
-    tnum_add (acc_v, Int64.zero) res.
+Fixpoint tnum_mul_rec (fuel: nat) (a b acc_m: tnum) : tnum :=
+  match fuel with
+  | O => acc_m
+  | S n =>
+    let c1 := Int64.eq (Int64.and (fst a) Int64.one) Int64.one in
+    let c2 := Int64.eq (Int64.and (snd a) Int64.one) Int64.one in
+    let acc_m := if c1 then tnum_add acc_m (Int64.zero, snd b)
+                  else if c2 then tnum_add acc_m (Int64.zero, Int64.or (fst b) (snd b))
+                  else acc_m in
+      tnum_mul_rec n (tnum_rshift a Byte.one) (tnum_lshift b Byte.one) acc_m
+  end.
+
+Definition tnum_mul (a b: tnum) (width: nat): tnum :=
+  let acc_v := (Int64.mul (fst a) (fst b), Int64.zero) in
+  let acc_m := tnum_mul_rec width a b (Int64.zero, Int64.zero) in
+    tnum_add acc_v acc_m.
 
 Definition Int64_size (x: u64) : Z :=
   Z_size_Z (Int64.unsigned x).
