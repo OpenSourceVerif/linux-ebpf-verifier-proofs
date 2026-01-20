@@ -145,11 +145,14 @@ Definition Int64_min (a b : u64) : Z :=
   Z.min (Int64.unsigned a) (Int64.unsigned b).
 
 Definition tnum_udiv (a b: tnum): tnum :=
-  if Int64.eq (fst b) Int64.zero then (Int64.zero, Int64.mone)
+  if (Int64.eq (fst b) Int64.zero) && (Int64.eq (snd b) Int64.zero) then
+    (Int64.zero, Int64.zero) (* BPF div specification: x / 0 = 0 *)
   else if (Int64.eq (snd a) Int64.zero) && (Int64.eq (snd b) Int64.zero) then
-    (Int64.divu (fst a) (fst b), Int64.zero)
+    (Int64.divu (fst a) (fst b), Int64.zero) (* concrete udiv *)
+  else if (Int64.eq (fst b) Int64.zero) then
+    (Int64.zero, Int64.mone) (* -1 represents unsigned_max *)
   else let max_res := Int64.divu (Int64.add (fst a) (snd a)) (fst b) in
-        (Int64.zero, Int64_ones (Int64_size max_res)).
+    (Int64.zero, Int64_ones (Int64_size max_res)).
 
 Definition mod_get_low_bits (a b: tnum):tnum :=
   if Int64_odd (fst b) || Int64_odd (snd b) then (Int64.zero, Int64.mone)
@@ -158,12 +161,15 @@ Definition mod_get_low_bits (a b: tnum):tnum :=
       (Int64.and (fst a) mask, Int64.or (Int64.and (snd a) mask) (Int64.not mask)).
 
 Definition tnum_umod (a b: tnum): tnum :=
-  if Int64.eq (fst b) Int64.zero then (Int64.zero, Int64.mone)
-  else if Int64.eq (snd a) Int64.zero && Int64.eq (snd b) Int64.zero then
-    (Int64.modu (fst a) (fst b), Int64.zero)
+  if (Int64.eq (fst b) Int64.zero) && (Int64.eq (snd b) Int64.zero) then
+    a (* BPF mod specification: x % 0 = x *)
+  else if (Int64.eq (snd a) Int64.zero) && (Int64.eq (snd b) Int64.zero) then
+    (Int64.modu (fst a) (fst b), Int64.zero) (* concrete umod *)
   else if Int64.eq (snd b) Int64.zero && Int64_is_pow2 (fst b) then
     (Int64.and (fst a) (Int64.sub (fst b) Int64.one),
      Int64.and (snd a) (Int64.sub (fst b) Int64.one))
+  else if (Int64.eq (fst b) Int64.zero) then
+    (Int64.zero, Int64.mone) (* -1 represents unsigned_max *)
   else let res := mod_get_low_bits a b in
     let a_max := Int64.add (fst a) (snd a) in
     let b_max := Int64.add (fst b) (snd b) in

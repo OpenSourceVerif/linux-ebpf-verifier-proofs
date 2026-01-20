@@ -144,6 +144,15 @@ Proof.
   rewrite Z.land_m1_r in H0. auto.
 Qed.
 
+Lemma gamma_0 : forall i,
+  gamma (0, 0) i -> i = 0.
+Proof.
+  intros. unfold gamma in H; simpl in H.
+  rewrite <- Z.ldiff_land in H.
+  rewrite Z.ldiff_0_r in H.
+  apply H.
+Qed.
+
 Definition tnum_lshift (a: tnum) (shift: Z): tnum :=
   ( Z.shiftl (fst a) shift, Z.shiftl (snd a) shift).
 
@@ -222,11 +231,14 @@ Definition tnum_mul_simple (a b: tnum) (width: nat): tnum :=
 (* Here is Truncating Division but I use Z.div instead of Z.quot
    to be consistent with the divu definition in CompCert's Int64. *)
 Definition tnum_udiv (a b: tnum): tnum :=
-  if Z.eqb (fst b) 0 then (0, -1) (* -1 represents unsigned_max *)
+  if Z.eqb (fst b) 0 && Z.eqb (snd b) 0 then
+    (0, 0) (* BPF div specification: x / 0 = 0 *)
   else if Z.eqb (snd a) 0 && Z.eqb (snd b) 0 then
     (Z.div (fst a) (fst b), 0) (* concrete udiv *)
+  else if Z.eqb (fst b) 0 then
+    (0, -1) (* -1 represents unsigned_max *)
   else let max_res := Z.div (fst a + snd a) (fst b) in
-        (0, Z.ones (Z_size_Z max_res)).
+    (0, Z.ones (Z_size_Z max_res)).
 
 Definition Z_is_pow2 (n : Z) : bool :=
   (0 <? n) && (Z.land n (n - 1) =? 0).
@@ -244,11 +256,14 @@ Definition mod_get_low_bits (a b: tnum):tnum :=
 (* Here is Truncating Remainder but I use Z.modulo instead of Z.rem
    to be consistent with the modu definition in CompCert's Int64. *)
 Definition tnum_umod (a b: tnum): tnum :=
-  if Z.eqb (fst b) 0 then (0, -1)
+  if Z.eqb (fst b) 0 && Z.eqb (snd b) 0 then
+    a (* BPF mod specification: x % 0 = x *)
   else if Z.eqb (snd a) 0 && Z.eqb (snd b) 0 then
-    (Z.modulo (fst a) (fst b), 0)
+    (Z.modulo (fst a) (fst b), 0) (* concrete udiv *)
   else if Z.eqb (snd b) 0 && Z_is_pow2 (fst b) then
     (Z.land (fst a) ((fst b) - 1), Z.land (snd a) ((fst b) - 1))
+  else if Z.eqb (fst b) 0 then
+    (0, -1) (* -1 represents unsigned_max *)
   else let res := mod_get_low_bits a b in
     let a_max := fst a + snd a in
     let b_max := fst b + snd b in

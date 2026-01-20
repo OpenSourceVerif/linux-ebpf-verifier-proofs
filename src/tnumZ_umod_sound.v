@@ -235,16 +235,21 @@ Lemma tnum_umod_sound : forall a b i j
 Proof.
   intros. unfold tnum_umod.
   destruct (Z.eqb_spec (fst b) 0) as [Hb_v0|Hb_v0].
-  { unfold gamma. simpl. apply Z.land_0_r. }
+  (* Case 1: divisor can by 0 *)
+  { destruct (Z.eqb_spec (snd b) 0) as [Hb_m0|Hb_m0]; simpl.
+    - destruct b; simpl in *; subst.
+      apply gamma_0 in Hgb. rewrite Hgb.
+      rewrite Zmod_0_r. apply Hga.
+    - rewrite andb_false_r. unfold gamma. simpl. apply Z.land_0_r. }
   destruct (andb (snd a =? 0) (snd b =? 0)) eqn:H_m0.
-  (* Case 1: concrete umod *)
+  (* Case 2: concrete umod *)
   { apply andb_prop in H_m0; destruct H_m0 as [Ha_m0 Hb_m0].
     apply Z.eqb_eq in Ha_m0, Hb_m0. unfold gamma in *; simpl.
     rewrite Ha_m0, Z.lnot_0, Z.land_m1_r in Hga.
     rewrite Hb_m0, Z.lnot_0, Z.land_m1_r in Hgb.
     rewrite Hga, Hgb, Z.lnot_0. apply Z.land_m1_r. }
   destruct (andb (snd b =? 0) (Z_is_pow2 (fst b))) eqn:Hp.
-  (* Case 2: divisor is pow of 2 *)
+  (* Case 3: divisor is pow of 2 *)
   { apply andb_prop in Hp; destruct Hp as [Hp1 Hp2]; apply Z.eqb_eq in Hp1.
     apply (gamma_const_uniq _ _ Hp1) in Hgb; rewrite <- Hgb in *.
     pose proof (tnum_ge_inv_gamma _ _ Hga Ha_inv).
@@ -256,10 +261,10 @@ Proof.
   assert (0 < j) by apply (tnum_gt_inv_gamma _ _ Hgb Hb_inv Hb_v0).
   unfold gamma; simpl. unfold mod_get_low_bits.
   destruct (Z.odd (fst b) || Z.odd (snd b)).
-  (* Case 3: mod_get_low_bits return default (0, 1) *)
+  (* Case 4.1: mod_get_low_bits return default (0, 1) *)
   { unfold snd at 1. rewrite Z_land_neg_1. simpl.
     rewrite <- Z.ldiff_land. apply (mod_ldiff_ones_0 _ _ _ _ Ha_inv Hb_inv Hga Hgb H). }
-  (* Case 4: mod_get_low_bits return general value *)
+  (* Case 4.2: mod_get_low_bits return general value *)
   set (mask := Z.ones (Z_size_Z (Z.min (fst a + snd a) (fst b + snd b)))).
   set (mask0 := Z.land (fst b + snd b) (- (fst b + snd b)) - 1).
   unfold snd at 1. unfold fst at 1. rewrite Z.lnot_land. rewrite Z.land_lor_distr_r.

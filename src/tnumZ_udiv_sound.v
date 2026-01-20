@@ -1,4 +1,4 @@
-From Coq Require Import List ZArith Lia.
+From Coq Require Import List ZArith Bool Lia.
 From bpf.src Require Import Zmore tnumZ tnumZ_inv tnumZ_add_sound tnumZ_sub_sound tnumZ_shift_sound.
 Import ListNotations.
 
@@ -11,15 +11,20 @@ Lemma tnum_udiv_sound : forall a b i j
 Proof.
   intros. unfold tnum_udiv.
   destruct (Z.eqb_spec (fst b) 0) as [Hb_v0|Hb_v0].
-  { unfold gamma. simpl. apply Z.land_0_r. }
+  (* Case 1: divisor can by 0 *)
+  { destruct (Z.eqb_spec (snd b) 0) as [Hb_m0|Hb_m0]; simpl.
+    - destruct b; simpl in *; subst.
+      apply gamma_0 in Hgb. rewrite Hgb.
+      rewrite Zdiv_0_r. reflexivity.
+    - rewrite andb_false_r. unfold gamma. simpl. apply Z.land_0_r. }
   destruct (andb (snd a =? 0) (snd b =? 0)) eqn:H_m0.
-  (* Case 1: concrete udiv *)
+  (* Case 2: concrete udiv *)
   { apply andb_prop in H_m0; destruct H_m0 as [Ha_m0 Hb_m0].
     apply Z.eqb_eq in Ha_m0, Hb_m0. unfold gamma in *; simpl.
     rewrite Ha_m0, Z.lnot_0, Z.land_m1_r in Hga.
     rewrite Hb_m0, Z.lnot_0, Z.land_m1_r in Hgb.
     rewrite Hga, Hgb, Z.lnot_0. apply Z.land_m1_r. }
-  (* Case 2: general case *)
+  (* Case 3: general case *)
   destruct (Z.eqb_spec (Z.div (fst a + snd a) (fst b)) 0) as [Hres_0|Hres_0].
   + unfold gamma; simpl. rewrite Hres_0; rewrite Z.ones_equiv; simpl.
     rewrite Z.lnot_0, Z.land_m1_r. apply Z.div_small.
@@ -31,7 +36,7 @@ Proof.
     { pose proof (Z.log2_nonneg (Z.abs (Z.div (fst a + snd a) (fst b)))).
       destruct (Z.div (fst a + snd a) (fst b)); try lia. }
     pose proof (tnum_ge_inv_gamma a i Hga Ha_inv);
-    pose proof (tnum_gt_inv_gamma _ _ Hgb Hb_inv Hb_v0). split.
+    pose proof (tnum_gt_inv_gamma b j Hgb Hb_inv Hb_v0). split.
     { apply (Z.div_pos _ _ H H0). }
     assert (Z.div i j <= Z.div (fst a + snd a) (fst b)).
     { assert (Z.div i j <= Z.div (fst a + snd a) j).

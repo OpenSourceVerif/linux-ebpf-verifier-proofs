@@ -589,9 +589,11 @@ Lemma tnum_udiv_eq : forall (a b : tnum),
 Proof.
   intros. unfold tnum_udiv, tnumZ.tnum_udiv. simpl.
   rewrite !Int64_eq_unsigned. rewrite Int64.unsigned_zero.
-  destruct (Z.eqb_spec (Int64.unsigned (fst b)) 0).
+  destruct ((Int64.unsigned (fst b) =? 0) && (Int64.unsigned (snd b) =? 0)).
   { reflexivity. }
   destruct ((Int64.unsigned (snd a) =? 0) && (Int64.unsigned (snd b) =? 0)).
+  { reflexivity. }
+  destruct (Int64.unsigned (fst b) =? 0) eqn:Hb_v0.
   { reflexivity. }
   unfold of_tnumZ. f_equal. simpl.
   unfold Int64_ones, Int64_size, Int64.divu.
@@ -791,19 +793,23 @@ Lemma tnum_umod_eq : forall (a b : tnum),
 Proof.
   intros. unfold tnum_umod, tnumZ.tnum_umod. simpl.
   rewrite !Int64_eq_unsigned. rewrite Int64.unsigned_zero.
-  destruct (Z.eqb_spec (Int64.unsigned (fst b)) 0).
-  { reflexivity. }
+  destruct ((Int64.unsigned (fst b) =? 0) && (Int64.unsigned (snd b) =? 0)).
+  { rewrite tnum_tnumZ_id. reflexivity. }
   destruct ((Int64.unsigned (snd a) =? 0) && (Int64.unsigned (snd b) =? 0)).
   { reflexivity. }
   unfold Int64_is_pow2.
-  destruct ((Int64.unsigned (snd b) =? 0) && (Z_is_pow2 (Int64.unsigned (fst b)))).
-  { unfold of_tnumZ. simpl. f_equal.
+  destruct ((Int64.unsigned (snd b) =? 0) && (Z_is_pow2 (Int64.unsigned (fst b)))) eqn:E.
+  { unfold Z_is_pow2 in E.
+    assert (0 < Int64.unsigned (fst b)) by lia.
+    unfold of_tnumZ. simpl. f_equal.
     all: unfold Int64.and, Int64.sub;
     rewrite Int64.unsigned_one;
     rewrite Int64.unsigned_repr;
     try reflexivity;
     pose proof (Int64.unsigned_range_2 (fst b));
     split; lia. }
+  destruct (Int64.unsigned (fst b) =? 0) eqn:Hb_v0.
+  { reflexivity. }
   unfold of_tnumZ. simpl.
   pose proof (Int64_unsigned_add_nonneg (fst a) (snd a)).
   pose proof (Int64_unsigned_add_nonneg (fst b) (snd b)).
