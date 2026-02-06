@@ -6,28 +6,18 @@ Require Import tnum.
 
 Import ListNotations.
 
-Definition mem_tnum (x: int64) (a: tnum): bool :=
-  Int64.eq (Int64.and x (Int64.not (snd a))) (fst a).
+Definition mem_tnum (x: int64) (a: tnum): Prop :=
+  Int64.and x (Int64.not (snd a)) = fst a.
 
 Definition wf_tnum (a: tnum): Prop :=
   (Int64.and (fst a) (snd a) = Int64.zero).
 
-Lemma int64_eq_if_same:
-  forall x y : int64, x = y <-> Int64.eq x y = true.
-Proof.
-  intros.
-  generalize (Int64.eq_spec x y).
-  destruct (Int64.eq x y); intuition congruence.
-Qed.
-
 (** gamma definition implies wf *)
 Lemma mem_imply_wf: forall va ma i,
-  mem_tnum i (va, ma) = true ->
-  wf_tnum (va, ma).
+  mem_tnum i (va, ma) -> wf_tnum (va, ma).
 Proof.
   unfold mem_tnum, wf_tnum; simpl.
   intros va ma i Hg.
-  apply int64_eq_if_same in Hg.
   subst.
   rewrite Int64.and_assoc.
   rewrite Int64.and_commut with (y := ma).
@@ -102,7 +92,7 @@ Proof.
   reflexivity.
 Qed.
 
-Lemma mem_tnum_range: forall x a, mem_tnum x a = true ->
+Lemma mem_tnum_range: forall x a, mem_tnum x a ->
   Int64.unsigned (fst a) + Int64.unsigned (snd a) <= Int64.max_unsigned.
 Proof.
   intros. apply mem_imply_wf in H. clear x.
@@ -165,12 +155,11 @@ Proof.
 Qed.
 
 Lemma mem_tnum_gamma : forall i a,
-    mem_tnum i a = true ->
+    mem_tnum i a ->
     gamma (to_tnumZ a) (Int64.unsigned i).
 Proof.
   unfold mem_tnum,gamma.
   intros.
-  rewrite <- int64_eq_if_same in H.
   unfold to_tnumZ.
   rewrite <- H.
   simpl.
@@ -831,11 +820,11 @@ Theorem tnum_binary_sound :
              gamma a i -> gamma b j -> gamma (tnum_fz a b) (fz i j))
          (FFZ : forall n,  0 <= n < Int64.zwordsize ->
                            forall i j ,  (Int64.testbit (f i j) n = Z.testbit (fz (Int64.unsigned i) (Int64.unsigned j)) n))
-         (MEMA : mem_tnum i a = true)
-         (MEMB : mem_tnum j b = true)
+         (MEMA : mem_tnum i a)
+         (MEMB : mem_tnum j b)
          (EQ : tnum_f a b = of_tnumZ (tnum_fz (to_tnumZ a) (to_tnumZ b)))
   ,
-    mem_tnum (f i j) (tnum_f a b) = true.
+    mem_tnum (f i j) (tnum_f a b).
 Proof.
   intros.
   apply mem_tnum_gamma in MEMA.
@@ -852,7 +841,6 @@ Proof.
   unfold gamma. simpl in *. intros. subst.
   unfold mem_tnum.
   simpl.
-  apply int64_eq_if_same.
   apply Int64.same_bits_eq.
   intros.
   rewrite Int64.testbit_repr by auto.
@@ -868,9 +856,9 @@ Qed.
 
 Theorem tnum_add_sound :
   forall a b i j
-         (MEMA : mem_tnum i a = true)
-         (MEMB : mem_tnum j b = true),
-    mem_tnum (Int64.add i j) (tnum_add a b) = true.
+         (MEMA : mem_tnum i a)
+         (MEMB : mem_tnum j b),
+    mem_tnum (Int64.add i j) (tnum_add a b).
 Proof.
   intros.
   apply tnum_binary_sound with (tnum_fz := tnumZ.tnum_add) (fz:= Z.add); auto.
@@ -883,9 +871,9 @@ Qed.
 
 Theorem tnum_sub_sound :
   forall a b i j
-         (MEMA : mem_tnum i a = true)
-         (MEMB : mem_tnum j b = true),
-    mem_tnum (Int64.sub i j) (tnum_sub a b) = true.
+         (MEMA : mem_tnum i a)
+         (MEMB : mem_tnum j b),
+    mem_tnum (Int64.sub i j) (tnum_sub a b).
 Proof.
   intros.
   apply tnum_binary_sound with (tnum_fz := tnumZ.tnum_sub) (fz:= Z.sub); auto.
@@ -904,11 +892,11 @@ Theorem tnum_binary_sound_ge_0_width :
                            forall i j ,  (Int64.testbit (f i j) n = Z.testbit (fz (Int64.unsigned i) (Int64.unsigned j)) n))
          (GEA : tnum_ge_inv (to_tnumZ a))
          (GEB : tnum_ge_inv (to_tnumZ b))
-         (MEMA : mem_tnum i a = true)
-         (MEMB : mem_tnum j b = true)
+         (MEMA : mem_tnum i a)
+         (MEMB : mem_tnum j b)
          (EQ : tnum_f a b (Z_size (Int64.unsigned i)) = of_tnumZ (tnum_fz (to_tnumZ a) (to_tnumZ b) (Z_size (Int64.unsigned i))))
   ,
-    mem_tnum (f i j) (tnum_f a b (Z_size (Int64.unsigned i))) = true.
+    mem_tnum (f i j) (tnum_f a b (Z_size (Int64.unsigned i))).
 Proof.
   intros.
   apply mem_tnum_gamma in MEMA.
@@ -925,7 +913,6 @@ Proof.
   unfold gamma. simpl in *. intros. subst.
   unfold mem_tnum.
   simpl.
-  apply int64_eq_if_same.
   apply Int64.same_bits_eq.
   intros.
   rewrite Int64.testbit_repr by auto.
@@ -942,9 +929,9 @@ Theorem tnum_mul_sound :
   forall a b i j
          (GEA : tnum_ge_inv (to_tnumZ a))
          (GEB : tnum_ge_inv (to_tnumZ b))
-         (MEMA : mem_tnum i a = true)
-         (MEMB : mem_tnum j b = true),
-    mem_tnum (Int64.mul i j) (tnum_mul a b (Z_size (Int64.unsigned i))) = true.
+         (MEMA : mem_tnum i a)
+         (MEMB : mem_tnum j b),
+    mem_tnum (Int64.mul i j) (tnum_mul a b (Z_size (Int64.unsigned i))).
 Proof.
   intros.
   apply tnum_binary_sound_ge_0_width with (tnum_fz := tnumZ.tnum_mul) (fz:= Z.mul); auto.
@@ -966,11 +953,11 @@ Theorem tnum_binary_sound_ge_0 :
                            forall i j ,  (Int64.testbit (f i j) n = Z.testbit (fz (Int64.unsigned i) (Int64.unsigned j)) n))
          (GEA : tnum_ge_inv (to_tnumZ a))
          (GEB : tnum_ge_inv (to_tnumZ b))
-         (MEMA : mem_tnum i a = true)
-         (MEMB : mem_tnum j b = true)
+         (MEMA : mem_tnum i a)
+         (MEMB : mem_tnum j b)
          (EQ : tnum_f a b = of_tnumZ (tnum_fz (to_tnumZ a) (to_tnumZ b)))
   ,
-    mem_tnum (f i j) (tnum_f a b) = true.
+    mem_tnum (f i j) (tnum_f a b).
 Proof.
   intros.
   apply mem_tnum_gamma in MEMA.
@@ -987,7 +974,6 @@ Proof.
   unfold gamma. simpl in *. intros. subst.
   unfold mem_tnum.
   simpl.
-  apply int64_eq_if_same.
   apply Int64.same_bits_eq.
   intros.
   rewrite Int64.testbit_repr by auto.
@@ -1004,9 +990,9 @@ Theorem tnum_udiv_sound :
   forall a b i j
          (GEA : tnum_ge_inv (to_tnumZ a))
          (GEB : tnum_ge_inv (to_tnumZ b))
-         (MEMA : mem_tnum i a = true)
-         (MEMB : mem_tnum j b = true),
-    mem_tnum (Int64.divu i j) (tnum_udiv a b) = true.
+         (MEMA : mem_tnum i a)
+         (MEMB : mem_tnum j b),
+    mem_tnum (Int64.divu i j) (tnum_udiv a b).
 Proof.
   intros.
   apply tnum_binary_sound_ge_0 with (tnum_fz := tnumZ.tnum_udiv) (fz:= Z.div); auto.
@@ -1022,9 +1008,9 @@ Theorem tnum_umod_sound :
   forall a b i j
          (GEA : tnum_ge_inv (to_tnumZ a))
          (GEB : tnum_ge_inv (to_tnumZ b))
-         (MEMA : mem_tnum i a = true)
-         (MEMB : mem_tnum j b = true),
-         mem_tnum (Int64.modu i j) (tnum_umod a b) = true.
+         (MEMA : mem_tnum i a)
+         (MEMB : mem_tnum j b),
+         mem_tnum (Int64.modu i j) (tnum_umod a b).
 Proof.
   intros.
   apply tnum_binary_sound_ge_0 with (tnum_fz := tnumZ.tnum_umod) (fz:= Z.modulo); auto.
