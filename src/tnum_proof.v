@@ -135,14 +135,14 @@ Proof.
 Qed.
 
 Lemma tnum_shiftl_eq: forall x,
-  tnum_lshift x Byte.one = of_tnumZ (tnumZ.tnum_lshift (to_tnumZ x) 1).
+  tnum_lshift x Int64.one = of_tnumZ (tnumZ.tnum_lshift (to_tnumZ x) 1).
 Proof.
   intros. unfold tnum_lshift, tnumZ.tnum_lshift.
   unfold of_tnumZ. f_equal.
 Qed.
 
 Lemma tnum_shiftr_eq: forall x,
-  tnum_rshift x Byte.one = of_tnumZ (tnumZ.tnum_rshift (to_tnumZ x) 1).
+  tnum_rshift x Int64.one = of_tnumZ (tnumZ.tnum_rshift (to_tnumZ x) 1).
 Proof.
   intros. unfold tnum_rshift, tnumZ.tnum_rshift.
   unfold of_tnumZ. f_equal.

@@ -47,22 +47,12 @@ Definition tnum_range (min max: u64): tnum :=
       let delta := Int64.sub (Int64.shl Int64.one bits) Int64.one in
         (Int64.and min (Int64.not delta), delta).
 
-(**r shift has u8 type in C *)
-(**r Q: a << b requires b is <= 32 or 64 ? *)
-Definition tnum_lshift (a: tnum) (shift: u8): tnum :=
-  ( Int64.shl (fst a) (u64_of_u8 shift),
-    Int64.shl (snd a) (u64_of_u8 shift)).
-Definition tnum_rshift (a: tnum) (shift: u8): tnum :=
-  ( Int64.shru (fst a) (u64_of_u8 shift),
-    Int64.shru (snd a) (u64_of_u8 shift)).
-
-Definition tnum_arshift (a: tnum) (min_shift insn_bitness: u8): tnum :=
-  if Byte.eq insn_bitness (Byte.repr 32) then
-    ( u64_of_s32 (Int.shr (s32_of_u64 (fst a)) (s32_of_u8 min_shift)),
-      u64_of_s32 (Int.shr (s32_of_u64 (snd a)) (s32_of_u8 min_shift)))
-  else
-    ( Int64.shr (fst a) (s64_of_u8 min_shift),
-      Int64.shr (snd a) (s64_of_u8 min_shift)).
+Definition tnum_lshift (a: tnum) (shift: int64): tnum :=
+  (Int64.shl (fst a) shift, Int64.shl (snd a) shift).
+Definition tnum_rshift (a: tnum) (shift: int64): tnum :=
+  (Int64.shru (fst a) shift, Int64.shru (snd a) shift).
+Definition tnum_arshift (a: tnum) (shift: int64): tnum :=
+  (Int64.shr (fst a) shift, Int64.shr (snd a) shift).
 
 Definition tnum_add (a b: tnum): tnum :=
   let sm    := Int64.add (snd a) (snd b) in
@@ -107,7 +97,7 @@ Fixpoint tnum_mul_rec_early_ret (fuel: nat) (a b acc_m: tnum) : tnum :=
       let acc_m := if c1 then tnum_add acc_m (Int64.zero, snd b)
                     else if c2 then tnum_add acc_m (Int64.zero, Int64.or (fst b) (snd b))
                     else acc_m in
-        tnum_mul_rec_early_ret n (tnum_rshift a Byte.one) (tnum_lshift b Byte.one) acc_m
+        tnum_mul_rec_early_ret n (tnum_rshift a Int64.one) (tnum_lshift b Int64.one) acc_m
     else
       acc_m
   end.
@@ -121,7 +111,7 @@ Fixpoint tnum_mul_rec (fuel: nat) (a b acc_m: tnum) : tnum :=
     let acc_m := if c1 then tnum_add acc_m (Int64.zero, snd b)
                   else if c2 then tnum_add acc_m (Int64.zero, Int64.or (fst b) (snd b))
                   else acc_m in
-      tnum_mul_rec n (tnum_rshift a Byte.one) (tnum_lshift b Byte.one) acc_m
+      tnum_mul_rec n (tnum_rshift a Int64.one) (tnum_lshift b Int64.one) acc_m
   end.
 
 Definition tnum_mul (a b: tnum) (width: nat): tnum :=
@@ -218,7 +208,7 @@ int tnum_sbin(char *str, size_t size, struct tnum a)
 
 Definition tnum_subreg (a: tnum): tnum := tnum_cast a (Byte.repr 4).
 
-Definition tnum_clear_subreg (a: tnum): tnum := tnum_lshift (tnum_rshift a (Byte.repr 32)) (Byte.repr 32).
+Definition tnum_clear_subreg (a: tnum): tnum := tnum_lshift (tnum_rshift a (Int64.repr 32)) (Int64.repr 32).
 
 Definition tnum_with_subreg (reg subreg: tnum): tnum := tnum_or (tnum_clear_subreg reg) (tnum_subreg subreg).
 
