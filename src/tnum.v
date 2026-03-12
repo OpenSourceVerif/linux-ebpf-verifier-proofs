@@ -86,6 +86,9 @@ Definition tnum_xor (a b: tnum): tnum :=
   let mu  := Int64.or (snd a) (snd b) in
     (Int64.and v (Int64.not mu), mu).
 
+Definition tnum_neg (a : tnum): tnum :=
+  tnum_sub (Int64.zero, Int64.zero) a.
+
 Fixpoint tnum_mul_rec_early_ret (fuel: nat) (a b acc_m: tnum) : tnum :=
   match fuel with
   | O => acc_m
@@ -143,6 +146,86 @@ Definition tnum_udiv (a b: tnum): tnum :=
     (Int64.zero, Int64.mone) (* -1 represents unsigned_max *)
   else let max_res := Int64.divu (Int64.add (fst a) (snd a)) (fst b) in
     (Int64.zero, Int64_ones (Int64_size max_res)).
+
+Definition tnum_union (a b: tnum) : tnum :=
+  let (a_v, a_m) := a in
+  let (b_v, b_m) := b in
+  let v := Int64.and a_v b_v in
+  let mu := Int64.or (Int64.xor a_v b_v) (Int64.or a_m b_m) in
+    (Int64.and v (Int64.not mu), mu).
+
+Definition tnum_union_opt (oa ob: option tnum) : option tnum :=
+  match oa, ob with
+  | None, ob => ob
+  | oa, None => oa
+  | Some a, Some b => Some (tnum_union a b)
+  end.
+
+Definition Int64_min_signed := Int64.repr Int64.min_signed.
+
+Definition Int64_msb (x: s64) : bool := Int64.lt x Int64.zero.
+
+Definition tnum_get_positive (a: tnum) : option tnum :=
+  let (v, m) := a in
+  if Int64_msb v then None
+  else if Int64_msb m then
+    Some (v, Int64.and m (Int64.not Int64_min_signed))
+  else Some a.
+
+Definition tnum_get_negative (a: tnum) : option tnum :=
+  let (v, m) := a in
+  if Int64_msb v then Some a
+  else if Int64_msb m then
+    Some (Int64.or v Int64_min_signed, Int64.and m (Int64.not Int64_min_signed))
+  else None.
+
+Definition tnum_abs (a: tnum) : tnum :=
+  if Int64_msb (fst a) then tnum_neg a else a.
+
+Definition tnum_sdiv_helper (a b: tnum) : tnum :=
+  let a_abs := tnum_abs a in
+  let b_abs := tnum_abs b in
+  let res_abs := tnum_udiv a_abs b_abs in
+  if Bool.eqb (Int64_msb (fst a)) (Int64_msb (fst b)) then
+    res_abs
+  else
+    tnum_neg res_abs.
+
+Definition tnum_sdiv_common (a b: tnum) : tnum :=
+  let a_pos := tnum_get_positive a in
+  let a_neg := tnum_get_negative a in
+  let b_pos := tnum_get_positive b in
+  let b_neg := tnum_get_negative b in
+  let calc (oa ob: option tnum) :=
+    match oa, ob with
+    | Some x, Some y => Some (tnum_sdiv_helper x y)
+    | _, _ => None
+    end in
+  let res_opt := 
+    tnum_union_opt (tnum_union_opt (calc a_pos b_pos) (calc a_neg b_neg))
+                   (tnum_union_opt (calc a_pos b_neg) (calc a_neg b_pos)) in
+  match res_opt with
+  | Some res => res
+  | None => tnum_unknown (* impossible *)
+  end.
+
+Definition tnum_sdiv (a b: tnum): tnum :=
+  let (a_v, a_m) := a in
+  let (b_v, b_m) := b in
+  if Int64.eq b_m Int64.zero then
+    if Int64.eq b_v Int64.zero then 
+      (Int64.zero, Int64.zero) (* BPF div specification: x / 0 = 0 *)
+    else if Int64.eq a_m Int64.zero then
+      if (Int64.eq a_v Int64_min_signed) && (Int64.eq b_v Int64.mone) then
+        (Int64_min_signed, Int64.zero) (* BPF div specification: S_MIN / -1 = S_MIN *)
+      else
+        (Int64.divs a_v b_v, Int64.zero) (* concrete sdiv *)
+    else
+      tnum_sdiv_common a b
+  else if Int64.eq b_v Int64.zero then
+    (Int64.zero, Int64.mone) (* tnum_unknown *)
+  else
+    tnum_sdiv_common a b.
 
 Definition mod_get_low_bits (a b: tnum):tnum :=
   if Int64_odd (fst b) || Int64_odd (snd b) then (Int64.zero, Int64.mone)

@@ -1,5 +1,6 @@
 From Coq Require Import List ZArith Lia Bool.
-From compcert.lib Require Import Integers.
+From compcert Require Import Integers Values.
+From bpf.ebpf Require Import ebpfBinSem.
 (*From bpf.src Require Import tnum. *)
 Require Import tnumZ tnumZ_inv tnumZ_add_sound tnumZ_sub_sound tnumZ_mul_sound tnumZ_udiv_sound tnumZ_umod_sound tnumZ_shift_sound tnumZ_mod_eq.
 Require Import tnum.
@@ -8,6 +9,12 @@ Import ListNotations.
 
 Definition mem_tnum (x: int64) (a: tnum): Prop :=
   Int64.and x (Int64.not (snd a)) = fst a.
+
+Definition gamma_val (v: val) (t: tnum) : Prop :=
+  match v with
+  | Vlong n => mem_tnum n t
+  | _ => False
+  end.
 
 Definition wf_tnum (a: tnum): Prop :=
   (Int64.and (fst a) (snd a) = Int64.zero).
@@ -853,14 +860,16 @@ Proof.
   auto.
 Qed.
 
-
 Theorem tnum_add_sound :
-  forall a b i j
-         (MEMA : mem_tnum i a)
-         (MEMB : mem_tnum j b),
-    mem_tnum (Int64.add i j) (tnum_add a b).
+  forall dst_v v dst_t t
+    (H_dst: gamma_val dst_v dst_t)
+    (H_src: gamma_val v t),
+  gamma_val (Val.addl dst_v v) (tnum_add dst_t t).
 Proof.
   intros.
+  destruct dst_v; simpl in H_dst; try contradiction.
+  destruct v; simpl in H_src; try contradiction.
+  simpl.
   apply tnum_binary_sound with (tnum_fz := tnumZ.tnum_add) (fz:= Z.add); auto.
   - intros.
     apply tnumZ_add_sound.tnum_add_sound; auto.
@@ -1022,3 +1031,119 @@ Proof.
     apply (mem_tnum_range _ _ MEMA).
     apply (mem_tnum_range _ _ MEMB).
 Qed.
+
+Theorem tnum_neg_sound :
+  forall a i
+         (MEMA : mem_tnum i a),
+    mem_tnum (Int64.neg i) (tnum_neg a).
+Proof.
+  intros.
+  unfold tnum_neg.
+  rewrite <- Int64.sub_zero_r.
+  apply tnum_sub_sound.
+  - unfold mem_tnum. reflexivity.
+  - apply MEMA.
+Qed.
+
+Lemma tnum_unknown_gamma :
+  forall i, mem_tnum i (Int64.zero, Int64.mone).
+Proof.
+  intros. unfold mem_tnum. simpl.
+  rewrite Int64.not_mone.
+  rewrite Int64.and_zero.
+  reflexivity. 
+Qed.
+
+Lemma tnum_msb: forall a,
+  mem_tnum (Int64.repr Int64.min_signed) a ->
+  Int64_msb (fst a) = true \/ Int64_msb (snd a) = true.
+Admitted.
+
+Lemma Int64_mone_msb : Int64_msb Int64.mone = true.
+Proof. reflexivity. Qed.
+
+Lemma Int64_zero_msb : Int64_msb Int64.zero = false.
+Proof. reflexivity. Qed.
+
+(* Lemma tnum_abs_ge :
+  forall a, tnum_ge_inv (to_tnumZ (tnum_abs a)).
+Proof.
+  intros. unfold tnum_abs, to_tnumZ.
+  destruct a as [a_v a_m]. simpl.
+  destruct (Int64_msb a_v). *)
+
+Lemma tnum_udiv_1 :
+  forall a, tnum_udiv a (Int64.one, Int64.zero) = a.
+Proof.
+  (* intros. destruct a as [a_v a_m]. unfold tnum_udiv. simpl.
+  change (Int64.eq Int64.one Int64.zero) with false. simpl.
+  change (Int64.eq Int64.zero Int64.zero) with true.
+  destruct (Int64.eq a_m Int64.zero) eqn:Ha_m0.
+  - apply Int64.same_if_eq in Ha_m0. simpl.
+    rewrite Int64.divu_one. rewrite <- Ha_m0.
+    reflexivity.
+  - simpl.   *)
+Admitted.
+
+Theorem tnum_sdiv_sound :
+  forall a b i j
+    (H_dst: gamma_val i a)
+    (H_src: gamma_val j b),
+  gamma_val (eval_div_s64 i j) (tnum_sdiv a b).
+Proof.
+  intros.
+  destruct i as [ | | i | | | ]; simpl in H_dst; try contradiction.
+  destruct j as [ | | j | | | ]; simpl in H_src; try contradiction.
+  unfold eval_div_s64; simpl.
+  unfold tnum_sdiv.
+  rewrite (surjective_pairing a), (surjective_pairing b).
+  destruct (Val.eq (Vlong j) (Vlong Int64.zero)) eqn:E1; simpl.
+  { injection e as E_j0.
+    rewrite E_j0. rewrite Int64.eq_true. simpl.
+    rewrite E_j0 in H_src. unfold mem_tnum in H_src.
+    rewrite Int64.and_zero_l in H_src.
+    rewrite <- H_src. rewrite Int64.eq_true.
+    destruct (Int64.eq (snd b) Int64.zero) eqn:Hb_m0; reflexivity. }
+  destruct (Coqlib.proj_sumbool (Val.eq (Vlong j) (Vlong Int64.mone)) &&
+            Coqlib.proj_sumbool (Val.eq (Vlong i) LLONG_MIN)) eqn:E2.
+  { apply andb_prop in E2. destruct E2 as [E2 E2'].
+    apply Coqlib.proj_sumbool_true in E2, E2'.
+    unfold LLONG_MIN in E2'.
+    injection E2 as E2. injection E2' as E2'.
+    rewrite E2, E2'.
+    rewrite! Int64.eq_true. simpl.
+    rewrite orb_true_r.
+    rewrite E2 in H_src. rewrite E2' in H_dst.
+    unfold mem_tnum in H_src.
+    rewrite Int64.and_mone_l in H_src.
+    destruct (Int64.eq (snd b) Int64.zero) eqn:Hb_m0.
+    - apply Int64.same_if_eq in Hb_m0.
+      rewrite Hb_m0 in *.
+      rewrite Int64.not_zero in H_src.
+      rewrite <- H_src.
+      change (Int64.eq Int64.mone Int64.zero) with false; simpl.
+      destruct (Int64.eq (snd a) Int64.zero) eqn:Ha_m0.
+      + apply Int64.same_if_eq in Ha_m0.
+        unfold mem_tnum in H_dst.
+        rewrite Ha_m0 in H_dst.
+        rewrite Int64.not_zero in H_dst.
+        rewrite <- H_dst.
+        change (Int64.eq (Int64.and (Int64.repr Int64.min_signed) Int64.mone) Int64_min_signed
+             && Int64.eq Int64.mone Int64.mone) with true; simpl.
+        unfold mem_tnum. unfold Int64_min_signed. simpl.
+        rewrite Int64.not_zero. rewrite Int64.and_mone. reflexivity.
+      + unfold tnum_sdiv_common. simpl.
+        apply tnum_msb in H_dst as H. destruct H.
+        * rewrite H. rewrite Int64_mone_msb. simpl.
+          unfold tnum_sdiv_helper; simpl.
+          rewrite H. rewrite Int64_mone_msb. simpl.
+          change (tnum_abs (Int64.mone, Int64.zero)) with (Int64.one, Int64.zero).
+          rewrite <- (Int64.divu_one (Int64.repr Int64.min_signed)).
+          apply tnum_udiv_sound; admit.
+        * admit.
+    - destruct (Int64.eq (fst b) Int64.zero) eqn:Hb_v0.
+      + simpl. apply tnum_unknown_gamma.
+      + admit.
+  }
+  admit.
+Admitted.
