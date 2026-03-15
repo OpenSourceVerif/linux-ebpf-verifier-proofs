@@ -1057,6 +1057,20 @@ Qed.
 Lemma tnum_msb: forall a,
   mem_tnum (Int64.repr Int64.min_signed) a ->
   Int64_msb (fst a) = true \/ Int64_msb (snd a) = true.
+Proof.
+  intros.
+  unfold Int64_msb.
+  unfold mem_tnum in *.
+  admit.
+Admitted.
+
+Lemma tnum_union_sound:
+  forall i a b,
+  mem_tnum i a \/ mem_tnum i b -> mem_tnum i (tnum_union a b).
+Proof.
+  intros i a b Hm.
+  unfold tnum_union.
+  admit.
 Admitted.
 
 Lemma Int64_mone_msb : Int64_msb Int64.mone = true.
@@ -1065,12 +1079,25 @@ Proof. reflexivity. Qed.
 Lemma Int64_zero_msb : Int64_msb Int64.zero = false.
 Proof. reflexivity. Qed.
 
-(* Lemma tnum_abs_ge :
+Lemma tnum_abs_ge :
   forall a, tnum_ge_inv (to_tnumZ (tnum_abs a)).
 Proof.
-  intros. unfold tnum_abs, to_tnumZ.
-  destruct a as [a_v a_m]. simpl.
-  destruct (Int64_msb a_v). *)
+  intros.
+  unfold tnum_ge_inv, to_tnumZ, tnum_abs.
+  split; simpl.
+  - remember (@fst u64 u64 match Int64_msb (@fst u64 u64 a) return tnum with
+            | true => tnum_neg a
+            | false => a
+            end) as t eqn: Ht.
+    pose proof (Int64.unsigned_range_2 t) as Heq.
+    lia.
+  - remember (@snd u64 u64 match Int64_msb (@fst u64 u64 a) return tnum with
+        | true => tnum_neg a
+        | false => a
+        end) as t eqn: Ht.
+    pose proof (Int64.unsigned_range_2 t) as Heq.
+    lia.
+Qed.
 
 Lemma tnum_udiv_1 :
   forall a, tnum_udiv a (Int64.one, Int64.zero) = a.
@@ -1084,6 +1111,44 @@ Proof.
     reflexivity.
   - simpl.   *)
 Admitted.
+
+Lemma Clt_Zlt_signed:
+  forall ofs hi,
+    Int64.lt ofs hi = true <-> Int64.signed ofs < Int64.signed hi.
+Proof.
+  intros.
+  split; intro H.
+  - unfold Int64.lt in H.
+    destruct (Coqlib.zlt _ _) in H; try inversion H.
+    assumption.
+  - unfold Int64.lt.
+    destruct (Coqlib.zlt _ _); lia.
+Qed.
+
+(*
+Int64.or_le
+
+Lemma zlor_le:
+  forall a b c,
+    a <= c 
+    Z.lor a b <= c.
+
+Lemma Clt_Zlt_signed_or:
+  forall a b c,
+    Int64.signed a < Int64.signed c \/ Int64.signed b < Int64.signed c ->
+    Int64.lt (Int64.or a b) c = true.
+Proof.
+  intros a b c Hc.
+  rewrite Clt_Zlt_signed.
+  destruct Hc as [Hc | Hc].
+  - unfold Int64.or, Int64.signed in *.
+    rewrite Int64.unsigned_repr.
+    Search Z.lor.
+    destruct (Coqlib.zlt _ _) as [Hd | Hd] in Hc; try inversion Hc.
+    + destruct (Coqlib.zlt _ _) as [He | He].
+      * 
+  - 
+Qed. *)
 
 Theorem tnum_sdiv_sound :
   forall a b i j
@@ -1139,11 +1204,145 @@ Proof.
           rewrite H. rewrite Int64_mone_msb. simpl.
           change (tnum_abs (Int64.mone, Int64.zero)) with (Int64.one, Int64.zero).
           rewrite <- (Int64.divu_one (Int64.repr Int64.min_signed)).
-          apply tnum_udiv_sound; admit.
-        * admit.
-    - destruct (Int64.eq (fst b) Int64.zero) eqn:Hb_v0.
+          assert (Heq: a = (fst a, snd a)). { destruct a; simpl; auto. }
+          rewrite <- Heq; clear Heq.
+          apply tnum_udiv_sound.
+          { apply tnum_abs_ge. }
+
+          {
+            unfold tnum_ge_inv, to_tnumZ, tnum_abs.
+            split; simpl.
+            - change (Int64.unsigned Int64.one) with 1.
+              lia.
+            - change (Int64.unsigned Int64.zero) with 0.
+              lia.
+          }
+
+          {
+            unfold tnum_abs.
+            rewrite H.
+            rewrite <- Int64.neg_involutive with (x := Int64.repr Int64.min_signed).
+            apply tnum_neg_sound.
+            clear - H_dst Ha_m0 H.
+            unfold Int64_msb in H.
+            change (Int64.neg (Int64.repr Int64.min_signed)) with (Int64.repr Int64.min_signed).
+            auto.
+          }
+
+          {
+            unfold mem_tnum.
+            simpl.
+            change (Int64.and Int64.one (Int64.not Int64.zero)) with Int64.one.
+            auto.
+          }
+        * rewrite H. rewrite Int64_mone_msb. simpl.
+          unfold tnum_sdiv_helper; simpl.
+          rewrite Int64_mone_msb. simpl.
+          change (tnum_abs (Int64.mone, Int64.zero)) with (Int64.one, Int64.zero).
+          assert (Heq: a = (fst a, snd a)). { destruct a; simpl; auto. }
+          rewrite <- Heq; clear Heq.
+          destruct (Int64_msb (fst a)) eqn: Hlt.
+          {
+            rewrite Hlt.
+            simpl.
+            replace (Int64.repr Int64.min_signed) with (Int64.divu (Int64.repr Int64.min_signed) Int64.one).
+            2:{ rewrite Int64.divu_one. auto. } 
+            apply tnum_udiv_sound.
+            - apply tnum_abs_ge.
+            - unfold tnum_ge_inv, to_tnumZ, tnum_abs.
+              split; simpl.
+              + change (Int64.unsigned Int64.one) with 1.
+                lia.
+              + change (Int64.unsigned Int64.zero) with 0.
+                lia.
+            - unfold tnum_abs.
+              rewrite Hlt.
+              rewrite <- Int64.neg_involutive with (x := Int64.repr Int64.min_signed).
+              apply tnum_neg_sound.
+              clear - H_dst Ha_m0 H.
+              unfold Int64_msb in H.
+              change (Int64.neg (Int64.repr Int64.min_signed)) with (Int64.repr Int64.min_signed).
+              auto.
+            - unfold mem_tnum.
+              simpl.
+              change (Int64.and Int64.one (Int64.not Int64.zero)) with Int64.one.
+              auto.
+          }
+
+          {
+            simpl.
+            assert (Heq: (Int64_msb (Int64.or (fst a) Int64_min_signed)) = true).
+            { unfold Int64_msb, Int64_min_signed. admit.
+            (*
+              rewrite Clt_Zlt_signed.
+              Search (Int64.signed _ < Int64.signed _).
+              unfold Int64.lt.
+              destruct (Coqlib.zlt _ _) as [| Hg]; auto.
+              assert (Heq: Int64.signed (Int64.or (fst a) (Int64.repr Int64.min_signed)) < Int64.signed Int64.zero).
+              - unfold Int64.signed.
+                destruct (Coqlib.zlt _ _) as [Hg1 | Hg1]; auto.
+                + destruct (Coqlib.zlt _ _) as [Hg2 | Hg2]; auto.
+                  * 
+                assert (Heq: Int64.signed (Int64.or (fst a) (Int64.repr Int64.
+                simpl. 
+              Search (Int64.signed _ < Int64.signed _).
+
+              auto.
+              rewrite Int64.lt_not.
+              rewrite andb_true_iff.
+              split.
+              - rewrite negb_true_iff.
+
+              unfold Int64.lt.
+              destruct (Coqlib.zlt _ _) as [| Hg]; auto.
+              exfalso. *)
+            }
+            rewrite Heq; clear Heq.
+            simpl.
+            rewrite Hlt; simpl.
+            apply tnum_union_sound.
+
+
+
+            left.
+            rewrite <- (Int64.divu_one (Int64.repr Int64.min_signed)).
+            apply tnum_udiv_sound.
+            - apply tnum_abs_ge.
+            - unfold tnum_ge_inv, to_tnumZ, tnum_abs.
+              split; simpl.
+              + change (Int64.unsigned Int64.one) with 1.
+                lia.
+              + change (Int64.unsigned Int64.zero) with 0.
+                lia.
+            - unfold tnum_abs; simpl.
+              assert (Heq: Int64_msb (Int64.or (fst a) Int64_min_signed) = false).
+              { admit. }
+              rewrite Heq; clear Heq.
+              clear - H_dst H Hlt.
+              unfold mem_tnum in *.
+              rewrite <- H_dst in *.
+              simpl in *.
+              rewrite Int64.not_and_or_not.
+              rewrite Int64.not_involutive.
+              rewrite <- Int64.and_commut with (x:= Int64.not (snd a)).
+              rewrite Int64.or_and_distrib_l.
+              unfold Int64_min_signed. 
+              rewrite Int64.or_idem.
+              rewrite Int64.and_commut.
+              auto.
+            - unfold mem_tnum.
+              simpl.
+              change (Int64.and Int64.one (Int64.not Int64.zero)) with Int64.one.
+              auto.
+          }
+
+    - 
+      destruct (Int64.eq (fst b) Int64.zero) eqn:Hb_v0.
       + simpl. apply tnum_unknown_gamma.
-      + admit.
+      + exfalso.
+        rewrite <- H_src in *.
+        clear - Hb_m0 Hb_v0.
+        admit.
   }
   admit.
 Admitted.
