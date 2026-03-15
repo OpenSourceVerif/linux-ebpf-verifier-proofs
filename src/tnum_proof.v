@@ -1054,6 +1054,103 @@ Proof.
   reflexivity. 
 Qed.
 
+Lemma testbit_sign_pos:
+  forall t,
+    0 <= Int64.signed t <->
+      Int64.testbit t (Int64.zwordsize - 1) = false.
+Proof.
+  split.
+  - intros.
+    unfold Int64.signed in H.
+    unfold Int64.testbit.
+    destruct (Coqlib.zlt _ _) as [Hl | Hl].
+    + eapply Zbits.Zbits_unsigned_range with (n:= 63).
+      * lia.
+      * change Int64.half_modulus with (two_p 63) in Hl.
+        lia.
+      * change Int64.zwordsize with 64.
+        lia.
+    + pose proof (Int64.unsigned_range_2 t) as Heq.
+
+      change Int64.half_modulus with 9223372036854775808 in Hl.
+      change Int64.modulus with 18446744073709551616 in H.
+      change Int64.max_unsigned with 18446744073709551615 in Heq.
+      lia.
+  - intros.
+    unfold Int64.signed.
+    unfold Int64.testbit in H.
+    destruct (Coqlib.zlt _ _) as [Hl | Hl].
+    + pose proof (Int64.unsigned_range_2 t) as Heq.
+      lia.
+    + rewrite Z.testbit_false in H.
+      * change Int64.half_modulus with 9223372036854775808 in Hl.
+        change Int64.zwordsize with 64 in H.
+        change Int64.modulus with 18446744073709551616.
+        lia.
+      * change Int64.zwordsize with 64.
+        lia.
+Qed.
+
+Lemma testbit_sign_neg:
+  forall t,
+    Int64.signed t < 0 <->
+      Int64.testbit t (Int64.zwordsize - 1) = true.
+Proof.
+  split; intros.
+  - unfold Int64.signed in H.
+    unfold Int64.testbit.
+    destruct (Coqlib.zlt _ _) as [Hl | Hl].
+    + pose proof (Int64.unsigned_range_2 t) as Heq.
+      lia.
+    + change Int64.zwordsize with 64.
+      rewrite Z.testbit_true; [| lia].
+      simpl.
+      change Int64.modulus with 18446744073709551616 in H.
+      change Int64.half_modulus with 9223372036854775808 in Hl.
+      change (Z.pow_pos 2 63) with 9223372036854775808.
+      lia.
+  - unfold Int64.signed.
+    unfold Int64.testbit in H.
+    destruct (Coqlib.zlt _ _) as [Hl | Hl].
+    + rewrite Z.testbit_true in H.
+      * change Int64.zwordsize with 64 in H.
+        change Int64.half_modulus with 9223372036854775808 in Hl.
+        lia.
+      * change Int64.zwordsize with 64.
+        lia.
+    + pose proof (Int64.unsigned_range_2 t) as Heq.
+      change Int64.max_unsigned with 18446744073709551615 in Heq.
+      change Int64.modulus with 18446744073709551616.
+      lia.
+Qed.
+
+
+Lemma Clt_Zlt_signed:
+  forall ofs hi,
+    Int64.lt ofs hi = true <-> Int64.signed ofs < Int64.signed hi.
+Proof.
+  intros.
+  split; intro H.
+  - unfold Int64.lt in H.
+    destruct (Coqlib.zlt _ _) in H; try inversion H.
+    assumption.
+  - unfold Int64.lt.
+    destruct (Coqlib.zlt _ _); lia.
+Qed.
+
+Lemma Clt_Zlt_signed_false:
+  forall ofs hi,
+    Int64.lt ofs hi = false <-> Int64.signed hi <= Int64.signed ofs.
+Proof.
+  intros.
+  split; intro H.
+  - unfold Int64.lt in H.
+    destruct (Coqlib.zlt _ _) in H; try inversion H.
+    lia.
+  - unfold Int64.lt.
+    destruct (Coqlib.zlt _ _); lia.
+Qed.
+
 Lemma tnum_msb: forall a,
   mem_tnum (Int64.repr Int64.min_signed) a ->
   Int64_msb (fst a) = true \/ Int64_msb (snd a) = true.
@@ -1061,8 +1158,36 @@ Proof.
   intros.
   unfold Int64_msb.
   unfold mem_tnum in *.
-  admit.
-Admitted.
+  rewrite <- H.
+  clear. (*
+  rewrite <- Int64.not_involutive with (x := Int64.repr Int64.min_signed).
+  rewrite <- Int64.not_or_and_not. *)
+  pose proof (Classical_Prop.classic (Int64.lt (snd a) Int64.zero = true)) as Heq.
+  destruct Heq as [Heq | Heq].
+  { auto. }
+
+  left.
+  apply not_true_is_false in Heq.
+  remember (snd a) as t eqn: Ht.
+  clear - Heq.
+
+  rewrite Clt_Zlt_signed_false in Heq.
+  rewrite Clt_Zlt_signed.
+  change (Int64.signed Int64.zero) with 0 in *.
+  rewrite testbit_sign_neg in *.
+  rewrite testbit_sign_pos in *.
+
+  rewrite Int64.bits_and.
+  2:{ change (Int64.zwordsize) with 64. lia. }
+  rewrite andb_true_iff.
+  split.
+  - change (Int64.testbit (Int64.repr Int64.min_signed) (Int64.zwordsize - 1)) with true.
+    auto.
+  - rewrite Int64.bits_not.
+    2:{ change (Int64.zwordsize) with 64. lia. }
+    rewrite Heq.
+    auto.
+Qed.
 
 Lemma tnum_union_sound:
   forall i a b,
@@ -1112,43 +1237,6 @@ Proof.
   - simpl.   *)
 Admitted.
 
-Lemma Clt_Zlt_signed:
-  forall ofs hi,
-    Int64.lt ofs hi = true <-> Int64.signed ofs < Int64.signed hi.
-Proof.
-  intros.
-  split; intro H.
-  - unfold Int64.lt in H.
-    destruct (Coqlib.zlt _ _) in H; try inversion H.
-    assumption.
-  - unfold Int64.lt.
-    destruct (Coqlib.zlt _ _); lia.
-Qed.
-
-(*
-Int64.or_le
-
-Lemma zlor_le:
-  forall a b c,
-    a <= c 
-    Z.lor a b <= c.
-
-Lemma Clt_Zlt_signed_or:
-  forall a b c,
-    Int64.signed a < Int64.signed c \/ Int64.signed b < Int64.signed c ->
-    Int64.lt (Int64.or a b) c = true.
-Proof.
-  intros a b c Hc.
-  rewrite Clt_Zlt_signed.
-  destruct Hc as [Hc | Hc].
-  - unfold Int64.or, Int64.signed in *.
-    rewrite Int64.unsigned_repr.
-    Search Z.lor.
-    destruct (Coqlib.zlt _ _) as [Hd | Hd] in Hc; try inversion Hc.
-    + destruct (Coqlib.zlt _ _) as [He | He].
-      * 
-  - 
-Qed. *)
 
 Theorem tnum_sdiv_sound :
   forall a b i j
