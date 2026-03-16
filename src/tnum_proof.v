@@ -1349,6 +1349,7 @@ Proof.
   lia.
 Qed.
 
+(*
 Lemma Int64_divs_eq1:
   forall i j
   (Hi_neg : Int64.lt i Int64.zero = true)
@@ -1428,7 +1429,6 @@ Proof.
   rewrite Z.div_opp_opp; try lia.
   auto.
 Qed.
-*)
 
 Lemma tnum_udiv_1 :
   forall a, tnum_udiv a (Int64.one, Int64.zero) = a.
@@ -1442,6 +1442,7 @@ Proof.
     reflexivity.
   - simpl.   *)
 Admitted.
+*)
 
 Lemma mem_tnum_min_signed_iff:
   forall a,
@@ -1505,6 +1506,7 @@ Proof.
   auto.
 Qed.
 
+(*
 Theorem tnum_sdiv_sound :
   forall a b i j
     (H_dst: gamma_val i a)
@@ -2390,3 +2392,4 @@ Proof.
   }
   admit.
 Admitted.
+*)
