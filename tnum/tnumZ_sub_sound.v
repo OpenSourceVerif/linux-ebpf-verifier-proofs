@@ -1,5 +1,5 @@
 From Coq Require Import ZArith Bool Lia Btauto.
-From bpf.src Require Import Zmore tnumZ tnumZ_add_sound tnumZ_not_sound.
+From bpf.tnum Require Import Zmore tnumZ tnumZ_add_sound tnumZ_not_sound.
 
 Definition tnum_sub_easy (a b: tnum): tnum :=
   let dv    :=  (fst a) - (fst b) in

@@ -1,9 +1,9 @@
 From Coq Require Import List ZArith Lia Bool.
 From compcert Require Import Integers Values.
 From bpf.ebpf Require Import ebpfBinSem.
-(*From bpf.src Require Import tnum. *)
-Require Import tnumZ tnumZ_inv tnumZ_add_sound tnumZ_sub_sound tnumZ_mul_sound tnumZ_udiv_sound tnumZ_umod_sound tnumZ_shift_sound tnumZ_mod_eq.
-Require Import tnum.
+
+From bpf.tnum Require Import tnumZ tnumZ_inv tnumZ_add_sound tnumZ_sub_sound tnumZ_mul_sound tnumZ_udiv_sound tnumZ_umod_sound tnumZ_shift_sound tnumZ_mod_eq.
+From bpf.tnum Require Import tnum.
 
 Import ListNotations.
 

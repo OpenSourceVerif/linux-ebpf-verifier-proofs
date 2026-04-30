@@ -1,7 +1,7 @@
 From Coq Require Import List ZArith Bool.
 From compcert.lib Require Import Integers.
 Import ListNotations.
-Require Import tnumZ.
+From bpf.tnum Require Import tnumZ.
 
 Definition u8 := byte.
 Definition s32 := int.

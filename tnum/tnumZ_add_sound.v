@@ -1,5 +1,5 @@
 From Coq Require Import ZArith Bool Lia Btauto.
-From bpf.src Require Import Zmore tnumZ.
+From bpf.tnum Require Import Zmore tnumZ.
 
 Lemma tnum_add_comm: forall a b,
   tnum_add a b = tnum_add b a.

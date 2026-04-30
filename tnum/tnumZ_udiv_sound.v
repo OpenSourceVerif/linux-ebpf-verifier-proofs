@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Bool Lia.
-From bpf.src Require Import Zmore tnumZ tnumZ_inv tnumZ_add_sound tnumZ_sub_sound tnumZ_shift_sound.
+From bpf.tnum Require Import Zmore tnumZ tnumZ_inv tnumZ_add_sound tnumZ_sub_sound tnumZ_shift_sound.
 Import ListNotations.
 
 Lemma tnum_udiv_sound : forall a b i j

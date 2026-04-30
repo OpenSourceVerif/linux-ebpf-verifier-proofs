@@ -1,5 +1,5 @@
 From Coq Require Import ZArith Lia Btauto.
-From bpf.src Require Import tnumZ.
+From bpf.tnum Require Import tnumZ.
 
 Lemma tnum_lshift_fst : forall a shift,
   fst (tnum_lshift a shift) = Z.shiftl (fst a) shift.

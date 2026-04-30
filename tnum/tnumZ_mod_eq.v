@@ -1,5 +1,5 @@
 From Coq Require Import List ZArith Lia.
-From bpf.src Require Import Zmore tnumZ tnumZ_shift_sound.
+From bpf.tnum Require Import Zmore tnumZ tnumZ_shift_sound.
 
 Lemma Z_testbit_mod : forall n i a b,
     0 <= i < n ->
