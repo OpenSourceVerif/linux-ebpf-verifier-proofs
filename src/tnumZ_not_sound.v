@@ -1,5 +1,5 @@
 From Coq Require Import ZArith Lia Btauto.
-From bpf.src Require Import tnumZ.
+From bpf.tnum Require Import tnumZ.
 
 Lemma fst_tnum_not : forall a,
     fst (tnum_not a) = Z.lnot (Z.lor (fst a)  (snd a)).

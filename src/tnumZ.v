@@ -12,7 +12,7 @@ Require Import Btauto.
 (*Require Import Cdcl.Itauto.*)
 Open Scope Z_scope.
 Add Search  Blacklist "POrderedType".
-From bpf.src Require Import Zmore.
+From bpf.tnum Require Import Zmore.
 
 Definition tnum := (Z * Z)%type.
 

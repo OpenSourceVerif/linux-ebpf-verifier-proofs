@@ -1,5 +1,5 @@
 From Coq Require Import ZArith Lia.
-From bpf.src Require Import Zmore tnumZ.
+From bpf.tnum Require Import Zmore tnumZ.
 
 Definition tnum_ge_inv (a: tnum): Prop :=
   0 <= fst a /\ 0 <= snd a.
