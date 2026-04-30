@@ -250,7 +250,7 @@ Definition tnum_umod (a b: tnum): tnum :=
       (Int64.and (fst res) mask, Int64.and (snd res) mask).
 
 Definition tnum_intersect (a b: tnum): tnum :=
-  let v   := Int64.xor (fst a) (fst b) in
+  let v   := Int64.or (fst a) (fst b) in 
   let mu  := Int64.and (snd a) (snd b) in
     (Int64.and v (Int64.not mu), mu).
 
