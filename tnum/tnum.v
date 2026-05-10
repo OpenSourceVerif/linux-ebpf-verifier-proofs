@@ -221,7 +221,7 @@ Definition tnum_sdiv_common (a b: tnum) : tnum :=
     end in
   let calc_neg_pos_opt (oa ob: option tnum) :=
     match oa, ob with
-    | Some x, Some y => if Int64.geu (Int64.neg (get_signed_max x)) (get_signed_max y) then 
+    | Some x, Some y => if Int64.ltu (get_signed_max y) (Int64.neg (get_signed_max x)) then 
                           let num := get_signed_min x in
                           let denom := get_signed_min y in
                           let max_res := if Int64.eq denom Int64.zero then num 
@@ -233,7 +233,7 @@ Definition tnum_sdiv_common (a b: tnum) : tnum :=
     end in
   let calc_pos_neg_opt (oa ob: option tnum) :=
     match oa, ob with
-    | Some x, Some y => if Int64.geu (get_signed_min x) (Int64.neg (get_signed_min y)) then 
+    | Some x, Some y => if Int64.ltu (Int64.neg (get_signed_min y)) (get_signed_min x) then 
                           let max_res := Int64.divs (get_signed_max x) (get_signed_max y) in
                           let mask := Int64_ones (Int64_size max_res) in
                           Some (Int64.not mask, mask)
