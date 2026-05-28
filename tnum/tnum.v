@@ -191,58 +191,63 @@ Definition tnum_abs (a: tnum) : tnum :=
   else
     tnum_neg res_abs. *)
 
+Definition get_signed_max (x: tnum) := Int64.or (fst x) (snd x).
+Definition get_signed_min (x: tnum) := fst x.
+
+Definition calc_pos_pos_opt (oa ob: option tnum) :=
+  match oa, ob with
+  | Some x, Some y => Some (tnum_udiv x y)
+  | _, _ => None
+  end.
+
+Definition calc_neg_neg_opt (oa ob: option tnum) :=
+  match oa, ob with
+  | Some x, Some y => 
+      let num := get_signed_min x in
+      let denom := get_signed_max y in
+      if (Int64.eq num Int64_min_signed) && (Int64.eq denom Int64.mone) then
+        Some tnum_unknown
+      else
+        let max_res := Int64.divs num denom in
+        Some (Int64.zero, Int64_ones (Int64_size max_res))
+  | _, _ => None
+  end.
+
+Definition calc_neg_pos_opt (oa ob: option tnum) :=
+  match oa, ob with
+  | Some x, Some y => 
+      if Int64.ltu (get_signed_max y) (Int64.neg (get_signed_max x)) then 
+        let num := get_signed_min x in
+        let denom := get_signed_min y in
+        let max_res := if Int64.eq denom Int64.zero then num else Int64.divs num denom in
+        let mask := Int64_ones (Int64_size max_res) in
+        Some (Int64.not mask, mask)
+      else Some tnum_unknown
+  | _, _ => None
+  end.
+
+Definition calc_pos_neg_opt (oa ob: option tnum) :=
+  match oa, ob with
+  | Some x, Some y => 
+      if Int64.ltu (Int64.neg (get_signed_min y)) (get_signed_min x) then 
+        let max_res := Int64.divs (get_signed_max x) (get_signed_max y) in
+        let mask := Int64_ones (Int64_size max_res) in
+        Some (Int64.not mask, mask)
+      else Some tnum_unknown
+  | _, _ => None
+  end.
+
 Definition tnum_sdiv_common (a b: tnum) : tnum :=
   let a_pos := tnum_get_positive a in
   let a_neg := tnum_get_negative a in
   let b_pos := tnum_get_positive b in
   let b_neg := tnum_get_negative b in
-(*  let calc (oa ob: option tnum) :=
-    match oa, ob with
-    | Some x, Some y => Some (tnum_sdiv_helper x y)
-    | _, _ => None
-    end in *)
-  let get_signed_max (x: tnum):= Int64.or (fst x) (snd x) in
-  let get_signed_min (x: tnum):= fst x in
-  let calc_pos_pos_opt (oa ob: option tnum) :=
-    match oa, ob with
-    | Some x, Some y => Some (tnum_udiv x y)
-    | _, _ => None
-    end in
-  let calc_neg_neg_opt (oa ob: option tnum) :=
-    match oa, ob with
-    | Some x, Some y => let num := get_signed_min x in
-                        let denom := get_signed_max y in
-                        if (Int64.eq num Int64_min_signed) && (Int64.eq denom Int64.mone) then
-                          Some tnum_unknown
-                        else
-                          let max_res := Int64.divs num denom in
-                          Some (Int64.zero, Int64_ones (Int64_size max_res))
-    | _, _ => None
-    end in
-  let calc_neg_pos_opt (oa ob: option tnum) :=
-    match oa, ob with
-    | Some x, Some y => if Int64.ltu (get_signed_max y) (Int64.neg (get_signed_max x)) then 
-                          let num := get_signed_min x in
-                          let denom := get_signed_min y in
-                          let max_res := if Int64.eq denom Int64.zero then num 
-                                          else Int64.divs num denom in
-                          let mask := Int64_ones (Int64_size max_res) in
-                          Some (Int64.not mask, mask)
-                        else Some tnum_unknown
-    | _, _ => None
-    end in
-  let calc_pos_neg_opt (oa ob: option tnum) :=
-    match oa, ob with
-    | Some x, Some y => if Int64.ltu (Int64.neg (get_signed_min y)) (get_signed_min x) then 
-                          let max_res := Int64.divs (get_signed_max x) (get_signed_max y) in
-                          let mask := Int64_ones (Int64_size max_res) in
-                          Some (Int64.not mask, mask)
-                        else Some tnum_unknown
-    | _, _ => None
-    end in
+  
   let res_opt := 
-    tnum_union_opt (tnum_union_opt (calc_pos_pos_opt a_pos b_pos) (calc_neg_neg_opt a_neg b_neg))
-                   (tnum_union_opt (calc_neg_pos_opt a_neg b_pos) (calc_pos_neg_opt a_pos b_neg)) in
+    tnum_union_opt 
+      (tnum_union_opt (calc_pos_pos_opt a_pos b_pos) (calc_neg_neg_opt a_neg b_neg))
+      (tnum_union_opt (calc_neg_pos_opt a_neg b_pos) (calc_pos_neg_opt a_pos b_neg)) in
+  
   match res_opt with
   | Some res => res
   | None => tnum_unknown (* impossible *)
