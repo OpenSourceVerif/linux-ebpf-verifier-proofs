@@ -1864,7 +1864,746 @@ Proof.
         discriminate Hbit.
     + reflexivity.
 Qed.
-(*
+
+Lemma calc_neg_pos_sound: forall a b i j a_neg b_pos res,
+  mem_tnum i a -> mem_tnum j b ->
+  Int64.signed i < 0 -> Int64.signed j >= 0 ->
+  tnum_get_negative a = Some a_neg ->
+  tnum_get_positive b = Some b_pos ->
+  calc_neg_pos_opt (Some a_neg) (Some b_pos) = Some res -> 
+  mem_tnum (Int64.divs i j) res.
+Proof.
+  intros a b i j a_neg b_pos res Hmem_a Hmem_b Hsign_i Hsign_j Hneg_a Hpos_b Hcalc.
+  
+  Ltac msb_to_testbit H :=
+    unfold Int64_msb in H;
+    (rewrite Clt_Zlt_signed in H || rewrite Clt_Zlt_signed_false in H);
+    change (Int64.signed Int64.zero) with 0 in H;
+    (apply testbit_sign_neg in H || apply testbit_sign_pos in H).
+
+  unfold calc_neg_pos_opt in Hcalc.
+  destruct (Int64.ltu (get_signed_max b_pos) (Int64.neg (get_signed_max a_neg))) eqn:Hltu.
+  - injection Hcalc as <-.
+    unfold mem_tnum; simpl.
+    apply Int64.same_bits_eq; intros n Hn.
+    rewrite !Int64.bits_and by lia.
+    rewrite !Int64.bits_not by lia.
+    unfold Int64_ones, Int64_size.
+    rewrite !Int64.testbit_repr by auto.
+    
+    match goal with
+    | |- context [ Z.ones (Z_size_Z (Int64.unsigned ?X)) ] => set (min_val := X) in *
+    end.
+    
+    assert (Hzsize: 0 <= Z_size_Z (Int64.unsigned min_val)).
+    { apply Z_size_range_Int64. pose proof (Int64.unsigned_range min_val). unfold Int64.max_unsigned; lia. }
+    
+    destruct (Coqlib.zlt n (Z_size_Z (Int64.unsigned min_val))) as [Hlt | Hge].
+    + rewrite !Z.ones_spec_low by lia.
+      destruct (Int64.testbit (Int64.divs i j) n); reflexivity.
+    + rewrite !Z.ones_spec_high by lia.
+      exfalso.
+
+      assert (H_a_neg_max_neg: Int64.signed (get_signed_max a_neg) < 0).
+      {
+        unfold get_signed_max, tnum_get_negative in *.
+        destruct a as [v m]. destruct (Int64_msb v) eqn:Hv.
+        - injection Hneg_a as <-. simpl. apply testbit_sign_neg.
+          rewrite !Int64.bits_or by (change Int64.zwordsize with 64; lia). msb_to_testbit Hv. rewrite Hv. auto.
+        - destruct (Int64_msb m) eqn:Hm.
+          + injection Hneg_a as <-. simpl. apply testbit_sign_neg.
+            rewrite !Int64.bits_or by (change Int64.zwordsize with 64; lia).
+            unfold Int64_min_signed.
+            change (Int64.testbit (Int64.repr Int64.min_signed) (Int64.zwordsize - 1)) with true.
+            destruct (Int64.testbit v (Int64.zwordsize - 1)); auto.
+          + discriminate.
+      }
+
+      assert (H_b_pos_max_pos: 0 <= Int64.signed (get_signed_max b_pos)).
+      {
+        unfold get_signed_max, tnum_get_positive in *.
+        destruct b as [v m]. destruct (Int64_msb v) eqn:Hv; try discriminate.
+        destruct (Int64_msb m) eqn:Hm.
+        - injection Hpos_b as <-. simpl. apply testbit_sign_pos.
+          rewrite !Int64.bits_or by (change Int64.zwordsize with 64; lia).
+          rewrite !Int64.bits_and by (change Int64.zwordsize with 64; lia).
+          unfold Int64_min_signed.
+          change (Int64.testbit (Int64.not (Int64.repr Int64.min_signed)) (Int64.zwordsize - 1)) with false.
+          rewrite andb_false_r. rewrite orb_false_r. msb_to_testbit Hv. exact Hv.
+        - injection Hpos_b as <-. simpl. apply testbit_sign_pos.
+          rewrite !Int64.bits_or by (change Int64.zwordsize with 64; lia). msb_to_testbit Hv. msb_to_testbit Hm. rewrite Hv, Hm. auto.
+      }
+
+      assert (H_min_le_max_a: Int64.signed (get_signed_min a_neg) <= Int64.signed (get_signed_max a_neg)).
+      {
+        unfold get_signed_min, get_signed_max.
+        assert (H_not_or: Int64.not (Int64.or (fst a_neg) (snd a_neg)) = Int64.and (Int64.not (fst a_neg)) (Int64.not (snd a_neg))).
+        { apply Int64.same_bits_eq; intros n0 Hn0.
+          rewrite Int64.bits_not, Int64.bits_and, !Int64.bits_not, !Int64.bits_or by auto.
+          destruct (Int64.testbit (fst a_neg) n0), (Int64.testbit (snd a_neg) n0); auto. }
+        pose proof (Int64.unsigned_not (fst a_neg)) as Hnot_f.
+        pose proof (Int64.unsigned_not (Int64.or (fst a_neg) (snd a_neg))) as Hnot_or.
+        rewrite H_not_or in Hnot_or. rewrite <- Zland_and in Hnot_or.
+        
+        assert (H_pos1: 0 <= Int64.unsigned (Int64.not (fst a_neg))) by (pose proof (Int64.unsigned_range (Int64.not (fst a_neg))); lia).
+        assert (H_pos2: 0 <= Int64.unsigned (Int64.not (snd a_neg))) by (pose proof (Int64.unsigned_range (Int64.not (snd a_neg))); lia).
+        pose proof (land_ub (Int64.unsigned (Int64.not (fst a_neg))) (Int64.unsigned (Int64.not (snd a_neg))) H_pos1 H_pos2).
+
+        unfold Int64.signed.
+        pose proof (Int64.unsigned_range (fst a_neg)).
+        pose proof (Int64.unsigned_range (Int64.or (fst a_neg) (snd a_neg))).
+        assert (H_sign_min: Int64.signed (fst a_neg) < 0).
+        {
+          unfold tnum_get_negative in Hneg_a.
+          destruct a as [v m]. destruct (Int64_msb v) eqn:Hv.
+          - injection Hneg_a as <-. simpl. apply testbit_sign_neg. msb_to_testbit Hv. exact Hv.
+          - destruct (Int64_msb m) eqn:Hm.
+            + injection Hneg_a as <-. simpl. apply testbit_sign_neg.
+              rewrite !Int64.bits_or by lia. unfold Int64_min_signed.
+              change (Int64.testbit (Int64.repr Int64.min_signed) (Int64.zwordsize - 1)) with true.
+              destruct (Int64.testbit v (Int64.zwordsize - 1)); auto.
+            + discriminate.
+        }
+        apply testbit_sign_neg in H_sign_min.
+        assert (H_msb_f: Int64.testbit (fst a_neg) (Int64.zwordsize - 1) = true) by exact H_sign_min.
+        assert (H_msb_or: Int64.testbit (Int64.or (fst a_neg) (snd a_neg)) (Int64.zwordsize - 1) = true).
+        { rewrite !Int64.bits_or by (change Int64.zwordsize with 64; lia). rewrite H_msb_f. apply orb_true_l. }
+        apply testbit_sign_neg in H_msb_f. apply testbit_sign_neg in H_msb_or.
+        
+        unfold Int64.signed in *.
+        destruct (Coqlib.zlt (Int64.unsigned (fst a_neg)) Int64.half_modulus);
+        destruct (Coqlib.zlt (Int64.unsigned (Int64.or (fst a_neg) (snd a_neg))) Int64.half_modulus);
+        lia.
+      }
+
+      assert (H_min_le_max_b: Int64.signed (get_signed_min b_pos) <= Int64.signed (get_signed_max b_pos)).
+      {
+        unfold get_signed_min, get_signed_max.
+        assert (H_not_or: Int64.not (Int64.or (fst b_pos) (snd b_pos)) = Int64.and (Int64.not (fst b_pos)) (Int64.not (snd b_pos))).
+        { apply Int64.same_bits_eq; intros n0 Hn0.
+          rewrite Int64.bits_not, Int64.bits_and, !Int64.bits_not, !Int64.bits_or by auto.
+          destruct (Int64.testbit (fst b_pos) n0), (Int64.testbit (snd b_pos) n0); auto. }
+        pose proof (Int64.unsigned_not (fst b_pos)) as Hnot_f.
+        pose proof (Int64.unsigned_not (Int64.or (fst b_pos) (snd b_pos))) as Hnot_or.
+        rewrite H_not_or in Hnot_or. rewrite <- Zland_and in Hnot_or.
+        
+        assert (H_pos1: 0 <= Int64.unsigned (Int64.not (fst b_pos))) by (pose proof (Int64.unsigned_range (Int64.not (fst b_pos))); lia).
+        assert (H_pos2: 0 <= Int64.unsigned (Int64.not (snd b_pos))) by (pose proof (Int64.unsigned_range (Int64.not (snd b_pos))); lia).
+        pose proof (land_ub (Int64.unsigned (Int64.not (fst b_pos))) (Int64.unsigned (Int64.not (snd b_pos))) H_pos1 H_pos2).
+
+        unfold Int64.signed.
+        pose proof (Int64.unsigned_range (fst b_pos)).
+        pose proof (Int64.unsigned_range (Int64.or (fst b_pos) (snd b_pos))).
+        
+        assert (H_sign_min: 0 <= Int64.signed (fst b_pos)).
+        {
+          unfold tnum_get_positive in Hpos_b.
+          destruct b as [v m]. destruct (Int64_msb v) eqn:Hv; try discriminate.
+          destruct (Int64_msb m) eqn:Hm.
+          - injection Hpos_b as <-. simpl. apply testbit_sign_pos. msb_to_testbit Hv. exact Hv.
+          - injection Hpos_b as <-. simpl. apply testbit_sign_pos. msb_to_testbit Hv. exact Hv.
+        }
+        apply testbit_sign_pos in H_sign_min.
+        assert (H_msb_f: Int64.testbit (fst b_pos) (Int64.zwordsize - 1) = false) by exact H_sign_min.
+        
+        assert (H_msb_or: Int64.testbit (Int64.or (fst b_pos) (snd b_pos)) (Int64.zwordsize - 1) = false).
+        { 
+          rewrite !Int64.bits_or by (change Int64.zwordsize with 64; lia). rewrite H_msb_f. 
+          unfold tnum_get_positive in Hpos_b.
+          destruct b as [v m]. destruct (Int64_msb v) eqn:Hv; try discriminate.
+          destruct (Int64_msb m) eqn:Hm.
+          - injection Hpos_b as <-. cbv [snd]. rewrite !Int64.bits_and by (change Int64.zwordsize with 64; lia). unfold Int64_min_signed.
+            change (Int64.testbit (Int64.not (Int64.repr Int64.min_signed)) (Int64.zwordsize - 1)) with false.
+            rewrite andb_false_r. reflexivity.
+          - injection Hpos_b as <-. cbv [snd]. msb_to_testbit Hm. rewrite Hm. reflexivity.
+        }
+        apply testbit_sign_pos in H_msb_f. apply testbit_sign_pos in H_msb_or.
+        
+        unfold Int64.signed in *.
+        destruct (Coqlib.zlt (Int64.unsigned (fst b_pos)) Int64.half_modulus);
+        destruct (Coqlib.zlt (Int64.unsigned (Int64.or (fst b_pos) (snd b_pos))) Int64.half_modulus);
+        lia.
+      }
+
+      assert (H_ltu_math: Int64.signed (get_signed_max b_pos) < - Int64.signed (get_signed_max a_neg)).
+      {
+        unfold Int64.ltu in Hltu.
+        destruct (Coqlib.zlt _ _) as [Hlt_ltu | Hge_ltu] in Hltu; [|discriminate].
+        
+        assert (H_uns_b: Int64.unsigned (get_signed_max b_pos) = Int64.signed (get_signed_max b_pos)).
+        { unfold Int64.signed in *.
+          pose proof (Int64.unsigned_range (get_signed_max b_pos)).
+          destruct (Coqlib.zlt (Int64.unsigned (get_signed_max b_pos)) Int64.half_modulus); lia. }
+          
+        assert (H_uns_a: Int64.unsigned (Int64.neg (get_signed_max a_neg)) = - Int64.signed (get_signed_max a_neg)).
+        { unfold Int64.neg. rewrite Int64.unsigned_repr_eq.
+          assert (H_a_uns: Int64.unsigned (get_signed_max a_neg) = Int64.signed (get_signed_max a_neg) + Int64.modulus).
+          { unfold Int64.signed in *.
+            pose proof (Int64.unsigned_range (get_signed_max a_neg)).
+            destruct (Coqlib.zlt (Int64.unsigned (get_signed_max a_neg)) Int64.half_modulus); lia. }
+          rewrite H_a_uns.
+          replace (- (Int64.signed (get_signed_max a_neg) + Int64.modulus)) with
+                  (- Int64.signed (get_signed_max a_neg) + (-1) * Int64.modulus) by lia.
+          rewrite Z.mod_add by (change Int64.modulus with 18446744073709551616; lia).
+          rewrite Z.mod_small.
+          - lia.
+          - pose proof (Int64.signed_range (get_signed_max a_neg)).
+            change Int64.min_signed with (-9223372036854775808) in *.
+            change Int64.max_signed with 9223372036854775807 in *.
+            change Int64.modulus with 18446744073709551616. lia. }
+        rewrite H_uns_b, H_uns_a in Hlt_ltu. lia.
+      }
+
+      assert (H_a_neg_min_neg: Int64.signed (get_signed_min a_neg) < 0) by lia.
+
+      assert (H_min_val_neg: Int64.signed min_val < 0).
+      {
+        unfold min_val.
+        destruct (Int64.eq (get_signed_min b_pos) Int64.zero) eqn:E_b0.
+        - lia.
+        - assert (H_b0_neq: Int64.signed (get_signed_min b_pos) <> 0).
+          { intro HF.
+            assert (H_uns: Int64.unsigned (get_signed_min b_pos) = 0).
+            { unfold Int64.signed in HF. 
+              pose proof (Int64.unsigned_range (get_signed_min b_pos)). 
+              destruct (Coqlib.zlt (Int64.unsigned (get_signed_min b_pos)) Int64.half_modulus); lia. }
+            rewrite Int64_eq_unsigned in E_b0. change (Int64.unsigned Int64.zero) with 0 in E_b0.
+            rewrite H_uns in E_b0. simpl in E_b0. discriminate.
+          }
+          assert (H_b_min_pos: 0 <= Int64.signed (get_signed_min b_pos)).
+          {
+            unfold get_signed_min, tnum_get_positive in *.
+            destruct b as [v m]. destruct (Int64_msb v) eqn:Hv; try discriminate.
+            destruct (Int64_msb m) eqn:Hm.
+            - injection Hpos_b as <-. simpl. apply testbit_sign_pos. msb_to_testbit Hv. exact Hv.
+            - injection Hpos_b as <-. simpl. apply testbit_sign_pos. msb_to_testbit Hv. exact Hv.
+          }
+          unfold Int64.divs.
+          assert (H_bounds: Int64.min_signed <= Z.quot (Int64.signed (get_signed_min a_neg)) (Int64.signed (get_signed_min b_pos)) < 0).
+          {
+            split.
+            - assert (H_Q_bound: Int64.signed (get_signed_min a_neg) <= Z.quot (Int64.signed (get_signed_min a_neg)) (Int64.signed (get_signed_min b_pos))).
+              {
+                 replace (Int64.signed (get_signed_min a_neg)) with (- (- Int64.signed (get_signed_min a_neg))) by lia.
+                 rewrite Z.quot_opp_l by lia.
+                 assert (Hle: Z.quot (- Int64.signed (get_signed_min a_neg)) (Int64.signed (get_signed_min b_pos)) <= - Int64.signed (get_signed_min a_neg)).
+                 {
+                    rewrite Z.quot_div_nonneg by lia.
+                    destruct (Z.eq_dec (Int64.signed (get_signed_min b_pos)) 1).
+                    - rewrite e. rewrite Z.div_1_r. lia.
+                    - apply Z.div_le_upper_bound; try lia.
+                      assert (H_c: Int64.signed (get_signed_min b_pos) >= 1) by lia.
+                      assert (H_a: - Int64.signed (get_signed_min a_neg) >= 0) by lia.
+                      assert (H_ac: - Int64.signed (get_signed_min a_neg) * 1 <= - Int64.signed (get_signed_min a_neg) * Int64.signed (get_signed_min b_pos)).
+                      { apply Z.mul_le_mono_nonneg_l; lia. }
+                      lia.
+                 }
+                 lia.
+              }
+              pose proof (Int64.signed_range (get_signed_min a_neg)). lia.
+            - assert (H_neg_div: forall x y, x <= - y -> y > 0 -> Z.quot x y < 0).
+              {
+                intros x y Hxy Hy.
+                replace x with (- (-x)) by lia.
+                rewrite Z.quot_opp_l by lia.
+                assert (Hpos: 0 < Z.quot (- x) y).
+                { apply Z.quot_str_pos; lia. }
+                lia.
+              }
+              apply H_neg_div; lia.
+          }
+          rewrite Int64.signed_repr.
+          + lia.
+          + pose proof (Int64.signed_range (get_signed_min a_neg)).
+            change Int64.min_signed with (-9223372036854775808) in *.
+            change Int64.max_signed with 9223372036854775807 in *.
+            lia.
+      }
+
+      apply testbit_sign_neg in H_min_val_neg.
+      assert (H_uns_ge: Int64.unsigned min_val >= 2^63).
+      {
+         unfold Int64.testbit in H_min_val_neg.
+         assert (H_bit: Z.testbit (Int64.unsigned min_val) 63 = true) by (change (Int64.zwordsize - 1) with 63 in H_min_val_neg; exact H_min_val_neg).
+         destruct (Z.lt_ge_cases (Int64.unsigned min_val) (2^63)) as [Hlt_bound | Hge_bound].
+         - assert (H_false: Z.testbit (Int64.unsigned min_val) 63 = false).
+           { apply Z.testbit_false; pose proof (Int64.unsigned_range min_val); lia. }
+           rewrite H_false in H_bit. discriminate.
+         - lia.
+      }
+      
+      assert (H_size_64: Z_size_Z (Int64.unsigned min_val) = 64).
+      {
+         unfold Z_size_Z.
+         destruct (Int64.unsigned min_val) eqn:Euns.
+         - lia.
+         - rewrite Z.abs_eq by lia.
+           assert (Z.log2 (Z.pos p) = 63).
+           { apply Z.log2_unique. 
+             - lia.
+             - pose proof (Int64.unsigned_range min_val) as H_range.
+               rewrite Euns in H_range.
+               change Int64.modulus with 18446744073709551616%Z in H_range.
+               replace (2 ^ 63)%Z with 9223372036854775808%Z in H_uns_ge by reflexivity.
+               replace (2 ^ 63)%Z with 9223372036854775808%Z by reflexivity.
+               replace (2 ^ Z.succ 63)%Z with 18446744073709551616%Z by reflexivity.
+               lia. }
+           lia.
+         - lia.
+      }
+      rewrite H_size_64 in Hge. change Int64.zwordsize with 64 in Hn. lia.
+
+  - injection Hcalc as <-.
+    apply tnum_unknown_gamma.
+Qed.
+
+Lemma calc_pos_neg_sound: forall a b i j a_pos b_neg res,
+  mem_tnum i a -> mem_tnum j b ->
+  Int64.signed i >= 0 -> Int64.signed j < 0 ->
+  tnum_get_positive a = Some a_pos ->
+  tnum_get_negative b = Some b_neg ->
+  calc_pos_neg_opt (Some a_pos) (Some b_neg) = Some res -> 
+  mem_tnum (Int64.divs i j) res.
+Proof.
+  intros a b i j a_pos b_neg res Hmem_a Hmem_b Hsign_i Hsign_j Hpos_a Hneg_b Hcalc.
+  
+  Ltac msb_to_testbit2 H :=
+    unfold Int64_msb in H;
+    (rewrite Clt_Zlt_signed in H || rewrite Clt_Zlt_signed_false in H);
+    change (Int64.signed Int64.zero) with 0 in H;
+    (apply testbit_sign_neg in H || apply testbit_sign_pos in H).
+
+  unfold calc_pos_neg_opt in Hcalc.
+  destruct (Int64.ltu (Int64.neg (get_signed_min b_neg)) (get_signed_min a_pos)) eqn:Hltu.
+  - injection Hcalc as <-.
+    unfold mem_tnum; simpl.
+    apply Int64.same_bits_eq; intros n Hn.
+    rewrite !Int64.bits_and by lia.
+    rewrite !Int64.bits_not by lia.
+    unfold Int64_ones, Int64_size.
+    rewrite !Int64.testbit_repr by auto.
+    
+    match goal with
+    | |- context [ Z.ones (Z_size_Z (Int64.unsigned ?X)) ] => set (min_val := X) in *
+    end.
+    
+    assert (Hzsize: 0 <= Z_size_Z (Int64.unsigned min_val)).
+    { apply Z_size_range_Int64. pose proof (Int64.unsigned_range min_val). unfold Int64.max_unsigned; lia. }
+
+    destruct (Coqlib.zlt n (Z_size_Z (Int64.unsigned min_val))) as [Hlt | Hge].
+    + rewrite !Z.ones_spec_low by lia.
+      destruct (Int64.testbit (Int64.divs i j) n); reflexivity.
+    + rewrite !Z.ones_spec_high by lia.
+      exfalso.
+
+      assert (H_a_pos_max_pos: 0 <= Int64.signed (get_signed_max a_pos)).
+      {
+        unfold get_signed_max, tnum_get_positive in *.
+        destruct a as [v m]. destruct (Int64_msb v) eqn:Hv; try discriminate.
+        destruct (Int64_msb m) eqn:Hm.
+        - injection Hpos_a as <-. simpl. apply testbit_sign_pos.
+          rewrite !Int64.bits_or by (change Int64.zwordsize with 64; lia).
+          rewrite !Int64.bits_and by (change Int64.zwordsize with 64; lia).
+          unfold Int64_min_signed.
+          change (Int64.testbit (Int64.not (Int64.repr Int64.min_signed)) (Int64.zwordsize - 1)) with false.
+          rewrite andb_false_r. rewrite orb_false_r. msb_to_testbit2 Hv. exact Hv.
+        - injection Hpos_a as <-. simpl. apply testbit_sign_pos.
+          rewrite !Int64.bits_or by (change Int64.zwordsize with 64; lia). msb_to_testbit2 Hv. msb_to_testbit2 Hm. rewrite Hv, Hm. auto.
+      }
+
+      assert (H_b_neg_max_neg: Int64.signed (get_signed_max b_neg) < 0).
+      {
+        unfold get_signed_max, tnum_get_negative in *.
+        destruct b as [v m]. destruct (Int64_msb v) eqn:Hv.
+        - injection Hneg_b as <-. simpl. apply testbit_sign_neg.
+          rewrite !Int64.bits_or by (change Int64.zwordsize with 64; lia). msb_to_testbit2 Hv. rewrite Hv. auto.
+        - destruct (Int64_msb m) eqn:Hm.
+          + injection Hneg_b as <-. simpl. apply testbit_sign_neg.
+            rewrite !Int64.bits_or by (change Int64.zwordsize with 64; lia).
+            unfold Int64_min_signed.
+            change (Int64.testbit (Int64.repr Int64.min_signed) (Int64.zwordsize - 1)) with true.
+            destruct (Int64.testbit v (Int64.zwordsize - 1)); auto.
+          + discriminate.
+      }
+
+      assert (H_min_le_max_b: Int64.signed (get_signed_min b_neg) <= Int64.signed (get_signed_max b_neg)).
+      {
+        unfold get_signed_min, get_signed_max.
+        assert (H_not_or: Int64.not (Int64.or (fst b_neg) (snd b_neg)) = Int64.and (Int64.not (fst b_neg)) (Int64.not (snd b_neg))).
+        { apply Int64.same_bits_eq; intros n0 Hn0.
+          rewrite Int64.bits_not, Int64.bits_and, !Int64.bits_not, !Int64.bits_or by auto.
+          destruct (Int64.testbit (fst b_neg) n0), (Int64.testbit (snd b_neg) n0); auto. }
+        pose proof (Int64.unsigned_not (fst b_neg)) as Hnot_f.
+        pose proof (Int64.unsigned_not (Int64.or (fst b_neg) (snd b_neg))) as Hnot_or.
+        rewrite H_not_or in Hnot_or. rewrite <- Zland_and in Hnot_or.
+        
+        assert (H_pos1: 0 <= Int64.unsigned (Int64.not (fst b_neg))) by (pose proof (Int64.unsigned_range (Int64.not (fst b_neg))); lia).
+        assert (H_pos2: 0 <= Int64.unsigned (Int64.not (snd b_neg))) by (pose proof (Int64.unsigned_range (Int64.not (snd b_neg))); lia).
+        pose proof (land_ub (Int64.unsigned (Int64.not (fst b_neg))) (Int64.unsigned (Int64.not (snd b_neg))) H_pos1 H_pos2).
+
+        unfold Int64.signed.
+        pose proof (Int64.unsigned_range (fst b_neg)).
+        pose proof (Int64.unsigned_range (Int64.or (fst b_neg) (snd b_neg))).
+        assert (H_sign_min: Int64.signed (fst b_neg) < 0).
+        {
+          unfold tnum_get_negative in Hneg_b.
+          destruct b as [v m]. destruct (Int64_msb v) eqn:Hv.
+          - injection Hneg_b as <-. simpl. apply testbit_sign_neg. msb_to_testbit2 Hv. exact Hv.
+          - destruct (Int64_msb m) eqn:Hm.
+            + injection Hneg_b as <-. simpl. apply testbit_sign_neg.
+              rewrite !Int64.bits_or by lia. unfold Int64_min_signed.
+              change (Int64.testbit (Int64.repr Int64.min_signed) (Int64.zwordsize - 1)) with true.
+              rewrite orb_true_r. auto.
+            + discriminate.
+        }
+        apply testbit_sign_neg in H_sign_min.
+        assert (H_msb_f: Int64.testbit (fst b_neg) (Int64.zwordsize - 1) = true) by exact H_sign_min.
+        assert (H_msb_or: Int64.testbit (Int64.or (fst b_neg) (snd b_neg)) (Int64.zwordsize - 1) = true).
+        { rewrite !Int64.bits_or by (change Int64.zwordsize with 64; lia). rewrite H_msb_f. apply orb_true_l. }
+        apply testbit_sign_neg in H_msb_f. apply testbit_sign_neg in H_msb_or.
+        
+        unfold Int64.signed in *.
+        destruct (Coqlib.zlt (Int64.unsigned (fst b_neg)) Int64.half_modulus);
+        destruct (Coqlib.zlt (Int64.unsigned (Int64.or (fst b_neg) (snd b_neg))) Int64.half_modulus);
+        lia.
+      }
+      
+      assert (H_min_le_max_a: Int64.signed (get_signed_min a_pos) <= Int64.signed (get_signed_max a_pos)).
+      {
+        unfold get_signed_min, get_signed_max.
+        assert (H_not_or: Int64.not (Int64.or (fst a_pos) (snd a_pos)) = Int64.and (Int64.not (fst a_pos)) (Int64.not (snd a_pos))).
+        { apply Int64.same_bits_eq; intros n0 Hn0.
+          rewrite Int64.bits_not, Int64.bits_and, !Int64.bits_not, !Int64.bits_or by auto.
+          destruct (Int64.testbit (fst a_pos) n0), (Int64.testbit (snd a_pos) n0); auto. }
+        pose proof (Int64.unsigned_not (fst a_pos)) as Hnot_f.
+        pose proof (Int64.unsigned_not (Int64.or (fst a_pos) (snd a_pos))) as Hnot_or.
+        rewrite H_not_or in Hnot_or. rewrite <- Zland_and in Hnot_or.
+        
+        assert (H_pos1: 0 <= Int64.unsigned (Int64.not (fst a_pos))) by (pose proof (Int64.unsigned_range (Int64.not (fst a_pos))); lia).
+        assert (H_pos2: 0 <= Int64.unsigned (Int64.not (snd a_pos))) by (pose proof (Int64.unsigned_range (Int64.not (snd a_pos))); lia).
+        pose proof (land_ub (Int64.unsigned (Int64.not (fst a_pos))) (Int64.unsigned (Int64.not (snd a_pos))) H_pos1 H_pos2).
+
+        unfold Int64.signed.
+        pose proof (Int64.unsigned_range (fst a_pos)).
+        pose proof (Int64.unsigned_range (Int64.or (fst a_pos) (snd a_pos))).
+        
+        assert (H_sign_min: 0 <= Int64.signed (fst a_pos)).
+        {
+          unfold tnum_get_positive in Hpos_a.
+          destruct a as [v m]. destruct (Int64_msb v) eqn:Hv; try discriminate.
+          destruct (Int64_msb m) eqn:Hm.
+          - injection Hpos_a as <-. simpl. apply testbit_sign_pos. msb_to_testbit2 Hv. exact Hv.
+          - injection Hpos_a as <-. simpl. apply testbit_sign_pos. msb_to_testbit2 Hv. exact Hv.
+        }
+        apply testbit_sign_pos in H_sign_min.
+        assert (H_msb_f: Int64.testbit (fst a_pos) (Int64.zwordsize - 1) = false) by exact H_sign_min.
+        
+        assert (H_msb_or: Int64.testbit (Int64.or (fst a_pos) (snd a_pos)) (Int64.zwordsize - 1) = false).
+        { 
+          rewrite !Int64.bits_or by (change Int64.zwordsize with 64; lia). rewrite H_msb_f. 
+          unfold tnum_get_positive in Hpos_a.
+          destruct a as [v m]. destruct (Int64_msb v) eqn:Hv; try discriminate.
+          destruct (Int64_msb m) eqn:Hm.
+          - injection Hpos_a as <-. cbv [snd]. rewrite !Int64.bits_and by (change Int64.zwordsize with 64; lia). unfold Int64_min_signed.
+            change (Int64.testbit (Int64.not (Int64.repr Int64.min_signed)) (Int64.zwordsize - 1)) with false.
+            rewrite andb_false_r. reflexivity.
+          - injection Hpos_a as <-. cbv [snd]. msb_to_testbit2 Hm. rewrite Hm. reflexivity.
+        }
+        apply testbit_sign_pos in H_msb_f. apply testbit_sign_pos in H_msb_or.
+        
+        unfold Int64.signed in *.
+        destruct (Coqlib.zlt (Int64.unsigned (fst a_pos)) Int64.half_modulus);
+        destruct (Coqlib.zlt (Int64.unsigned (Int64.or (fst a_pos) (snd a_pos))) Int64.half_modulus);
+        lia.
+      }
+      
+      assert (H_b_neg_min_neg: Int64.signed (get_signed_min b_neg) < 0) by lia.
+
+      assert (H_a_pos_min_pos: 0 <= Int64.signed (get_signed_min a_pos)).
+      {
+        unfold get_signed_min, tnum_get_positive in *.
+        destruct a as [v m]. destruct (Int64_msb v) eqn:Hv; try discriminate.
+        destruct (Int64_msb m) eqn:Hm.
+        - injection Hpos_a as <-. simpl. apply testbit_sign_pos. msb_to_testbit2 Hv. exact Hv.
+        - injection Hpos_a as <-. simpl. apply testbit_sign_pos. msb_to_testbit2 Hv. exact Hv.
+      }
+
+      assert (H_ltu_math: - Int64.signed (get_signed_min b_neg) < Int64.signed (get_signed_min a_pos)).
+      {
+        unfold Int64.ltu in Hltu.
+        destruct (Coqlib.zlt _ _) as [Hlt_ltu | Hge_ltu] in Hltu; [|discriminate].
+        
+        assert (H_uns_b: Int64.unsigned (Int64.neg (get_signed_min b_neg)) = - Int64.signed (get_signed_min b_neg)).
+        { unfold Int64.neg. rewrite Int64.unsigned_repr_eq.
+          assert (H_b_uns: Int64.unsigned (get_signed_min b_neg) = Int64.signed (get_signed_min b_neg) + Int64.modulus).
+          { unfold Int64.signed in *. 
+            pose proof (Int64.unsigned_range (get_signed_min b_neg)).
+            destruct (Coqlib.zlt (Int64.unsigned (get_signed_min b_neg)) Int64.half_modulus); lia. }
+          rewrite H_b_uns.
+          replace (- (Int64.signed (get_signed_min b_neg) + Int64.modulus)) with
+                  (- Int64.signed (get_signed_min b_neg) + -1 * Int64.modulus)%Z by lia.
+          rewrite Z.mod_add by (change Int64.modulus with 18446744073709551616%Z; lia).
+          rewrite Z.mod_small.
+          - lia.
+          - pose proof (Int64.signed_range (get_signed_min b_neg)).
+            change Int64.min_signed with (-9223372036854775808%Z) in *.
+            change Int64.max_signed with 9223372036854775807%Z in *.
+            change Int64.modulus with 18446744073709551616%Z. lia. }
+            
+        assert (H_uns_a: Int64.unsigned (get_signed_min a_pos) = Int64.signed (get_signed_min a_pos)).
+        { unfold Int64.signed in *.
+          pose proof (Int64.unsigned_range (get_signed_min a_pos)).
+          destruct (Coqlib.zlt (Int64.unsigned (get_signed_min a_pos)) Int64.half_modulus); lia. }
+        rewrite H_uns_b, H_uns_a in Hlt_ltu. lia.
+      }
+
+      assert (H_min_val_neg: Int64.signed min_val < 0).
+      {
+        unfold min_val.
+        unfold Int64.divs.
+        assert (H_a_pos_strict: Int64.signed (get_signed_max a_pos) > 0) by lia.
+        assert (H_b_max_neg1: Int64.signed (get_signed_max b_neg) <= -1) by lia.
+        assert (H_bounds: Int64.min_signed <= Z.quot (Int64.signed (get_signed_max a_pos)) (Int64.signed (get_signed_max b_neg)) < 0).
+        {
+          split.
+          - assert (H_Q_bound: - Int64.signed (get_signed_max a_pos) <= Z.quot (Int64.signed (get_signed_max a_pos)) (Int64.signed (get_signed_max b_neg))).
+            {
+               replace (Int64.signed (get_signed_max b_neg)) with (- (- Int64.signed (get_signed_max b_neg))) by lia.
+               rewrite Z.quot_opp_r by lia.
+               assert (Hle: Z.quot (Int64.signed (get_signed_max a_pos)) (- Int64.signed (get_signed_max b_neg)) <= Int64.signed (get_signed_max a_pos)).
+               {
+                  rewrite Z.quot_div_nonneg by lia.
+                  destruct (Z.eq_dec (- Int64.signed (get_signed_max b_neg)) 1).
+                  - lia.
+                  - apply Z.div_le_upper_bound; try lia.
+                    assert (H_c: - Int64.signed (get_signed_max b_neg) >= 2) by lia.
+                    assert (H_ac: Int64.signed (get_signed_max a_pos) * 1 <= Int64.signed (get_signed_max a_pos) * (- Int64.signed (get_signed_max b_neg))).
+                    { apply Z.mul_le_mono_nonneg_l; lia. }
+                    lia.
+               }
+               lia.
+            }
+            pose proof (Int64.signed_range (get_signed_max a_pos)).
+            change Int64.min_signed with (-9223372036854775808%Z) in *.
+            change Int64.max_signed with 9223372036854775807%Z in *.
+            lia.
+          - assert (H_neg_div: forall x y, x >= - y -> y <= -1 -> Z.quot x y < 0).
+            {
+              intros x y Hxy Hy.
+              replace y with (- (-y)) by lia.
+              rewrite Z.quot_opp_r by lia.
+              assert (Hpos: 0 < Z.quot x (- y)).
+              { apply Z.quot_str_pos; lia. }
+              lia.
+            }
+            apply H_neg_div; lia.
+        }
+        rewrite Int64.signed_repr.
+        + lia.
+        + pose proof (Int64.signed_range (get_signed_max a_pos)).
+          change Int64.min_signed with (-9223372036854775808%Z) in *.
+          change Int64.max_signed with 9223372036854775807%Z in *.
+          lia.
+      }
+
+      apply testbit_sign_neg in H_min_val_neg.
+      assert (H_uns_ge: Int64.unsigned min_val >= 2^63).
+      {
+         unfold Int64.testbit in H_min_val_neg.
+         assert (H_bit: Z.testbit (Int64.unsigned min_val) 63 = true) by (change (Int64.zwordsize - 1) with 63 in H_min_val_neg; exact H_min_val_neg).
+         destruct (Z.lt_ge_cases (Int64.unsigned min_val) (2^63)) as [Hlt_bound | Hge_bound].
+         - assert (H_false: Z.testbit (Int64.unsigned min_val) 63 = false).
+           { apply Z.testbit_false; pose proof (Int64.unsigned_range min_val); lia. }
+           rewrite H_false in H_bit. discriminate.
+         - lia.
+      }
+      
+      assert (H_size_64: Z_size_Z (Int64.unsigned min_val) = 64).
+      {
+         unfold Z_size_Z.
+         destruct (Int64.unsigned min_val) eqn:Euns.
+         - lia.
+         - rewrite Z.abs_eq by lia.
+           assert (Z.log2 (Z.pos p) = 63).
+           { apply Z.log2_unique. 
+             - lia.
+             - pose proof (Int64.unsigned_range min_val) as H_range.
+               rewrite Euns in H_range.
+               change Int64.modulus with 18446744073709551616%Z in H_range.
+               replace (2 ^ 63)%Z with 9223372036854775808%Z by reflexivity.
+               replace (2 ^ Z.succ 63)%Z with 18446744073709551616%Z by reflexivity.
+               lia. }
+           lia.
+         - lia.
+      }
+      rewrite H_size_64 in Hge. change Int64.zwordsize with 64 in Hn. lia.
+
+  - injection Hcalc as <-.
+    apply tnum_unknown_gamma.
+Qed.
+
+Lemma tnum_sdiv_common_sound: forall a b i j,
+  mem_tnum i a -> mem_tnum j b ->
+  j <> Int64.zero ->
+  ~ (i = Int64.repr Int64.min_signed /\ j = Int64.mone) ->
+  mem_tnum (Int64.divs i j) (tnum_sdiv_common a b).
+Proof.
+  intros a b i j Hmem_a Hmem_b Hj_not0 H_not_overflow.
+  unfold tnum_sdiv_common.
+  
+  Ltac kill_none x elem Hmem Hsign Hnone :=
+    exfalso;
+    (unfold tnum_get_negative in Hnone || unfold tnum_get_positive in Hnone);
+    destruct x as [v m]; 
+    destruct (Int64_msb v) eqn:Hv;
+    destruct (Int64_msb m) eqn:Hm;
+    try discriminate Hnone;
+    unfold mem_tnum in Hmem; simpl in Hmem;
+    assert (Hbit: Int64.testbit (Int64.and elem (Int64.not m)) 63 = Int64.testbit v 63) by (rewrite Hmem; reflexivity);
+    rewrite Int64.bits_and in Hbit by (change Int64.zwordsize with 64; lia);
+    rewrite Int64.bits_not in Hbit by (change Int64.zwordsize with 64; lia);
+    destruct (Int64.testbit elem 63) eqn:Helem63;
+    destruct (Int64.testbit v 63) eqn:Hv63;
+    destruct (Int64.testbit m 63) eqn:Hm63;
+    simpl in Hbit; try discriminate Hbit;
+    change 63 with (Int64.zwordsize - 1) in Helem63, Hv63, Hm63;
+    try (apply testbit_sign_neg in Helem63); try (apply testbit_sign_pos in Helem63);
+    try (apply testbit_sign_neg in Hv63); try (apply testbit_sign_pos in Hv63);
+    try (apply testbit_sign_neg in Hm63); try (apply testbit_sign_pos in Hm63);
+    unfold Int64_msb in *;
+    repeat match goal with 
+    | H: Int64.lt _ _ = true |- _ => rewrite Clt_Zlt_signed in H 
+    | H: Int64.lt _ _ = false |- _ => rewrite Clt_Zlt_signed_false in H 
+    end;
+    change (Int64.signed Int64.zero) with 0 in *;
+    lia.
+
+  Ltac solve_calc_none Hcalc Hmem_a Hmem_b Hi_sign Hj_sign elem_i elem_j orig_a orig_b :=
+    unfold calc_pos_pos_opt, calc_neg_neg_opt, calc_neg_pos_opt, calc_pos_neg_opt in Hcalc;
+    repeat match type of Hcalc with
+    | context[Int64_msb ?x] => destruct (Int64_msb x) eqn:?
+    | context[Int64.ltu ?x ?y] => destruct (Int64.ltu x y) eqn:?
+    | context[?x && ?y] => destruct (x && y) eqn:?
+    end;
+    try discriminate Hcalc;
+    exfalso;
+    unfold mem_tnum in Hmem_a, Hmem_b; simpl in Hmem_a, Hmem_b;
+    assert (Hba: Int64.testbit (Int64.and elem_i (Int64.not (snd orig_a))) 63 = Int64.testbit (fst orig_a) 63) by (rewrite Hmem_a; reflexivity);
+    assert (Hbb: Int64.testbit (Int64.and elem_j (Int64.not (snd orig_b))) 63 = Int64.testbit (fst orig_b) 63) by (rewrite Hmem_b; reflexivity);
+    rewrite Int64.bits_and in Hba by (change Int64.zwordsize with 64; lia);
+    rewrite Int64.bits_not in Hba by (change Int64.zwordsize with 64; lia);
+    rewrite Int64.bits_and in Hbb by (change Int64.zwordsize with 64; lia);
+    rewrite Int64.bits_not in Hbb by (change Int64.zwordsize with 64; lia);
+    destruct (Int64.testbit elem_i 63) eqn:Hei63;
+    destruct (Int64.testbit elem_j 63) eqn:Hej63;
+    destruct (Int64.testbit (fst orig_a) 63) eqn:Ha_v63;
+    destruct (Int64.testbit (snd orig_a) 63) eqn:Ha_m63;
+    destruct (Int64.testbit (fst orig_b) 63) eqn:Hb_v63;
+    destruct (Int64.testbit (snd orig_b) 63) eqn:Hb_m63;
+    simpl in Hba, Hbb; try discriminate Hba; try discriminate Hbb;
+    change 63 with (Int64.zwordsize - 1) in Hei63, Hej63, Ha_v63, Ha_m63, Hb_v63, Hb_m63;
+    try (apply testbit_sign_neg in Hei63); try (apply testbit_sign_pos in Hei63);
+    try (apply testbit_sign_neg in Hej63); try (apply testbit_sign_pos in Hej63);
+    try (apply testbit_sign_neg in Ha_v63); try (apply testbit_sign_pos in Ha_v63);
+    try (apply testbit_sign_neg in Ha_m63); try (apply testbit_sign_pos in Ha_m63);
+    try (apply testbit_sign_neg in Hb_v63); try (apply testbit_sign_pos in Hb_v63);
+    try (apply testbit_sign_neg in Hb_m63); try (apply testbit_sign_pos in Hb_m63);
+    unfold Int64_msb in *;
+    repeat match goal with 
+    | H: Int64.lt _ _ = true |- _ => rewrite Clt_Zlt_signed in H 
+    | H: Int64.lt _ _ = false |- _ => rewrite Clt_Zlt_signed_false in H 
+    end;
+    change (Int64.signed Int64.zero) with 0 in *;
+    lia.
+
+  Ltac drill_union :=
+    simpl;
+    match goal with
+    | |- mem_tnum _ tnum_unknown => apply tnum_unknown_gamma
+    | |- mem_tnum _ (tnum_union _ _) => apply tnum_union_sound; (left; drill_union) + (right; drill_union)
+    | |- mem_tnum _ ?res => assumption
+    end. 
+
+  destruct (Coqlib.zlt (Int64.signed i) 0) as [Hi_lt | Hi_ge];
+  destruct (Coqlib.zlt (Int64.signed j) 0) as [Hj_lt | Hj_ge].
+  
+  -
+    destruct (tnum_get_negative a) as [a_neg|] eqn:Ha_neg; [| kill_none a i Hmem_a Hi_lt Ha_neg].
+    destruct (tnum_get_negative b) as [b_neg|] eqn:Hb_neg; [| kill_none b j Hmem_b Hj_lt Hb_neg].
+    
+    destruct (calc_neg_neg_opt (Some a_neg) (Some b_neg)) as [res|] eqn:Hcalc.
+    + assert (H_sound: mem_tnum (Int64.divs i j) res) by (eapply calc_neg_neg_sound; eauto).
+      destruct (calc_pos_pos_opt _ _); destruct (calc_neg_pos_opt _ _); destruct (calc_pos_neg_opt _ _).
+      all: drill_union.
+    + solve_calc_none Hcalc Hmem_a Hmem_b Hi_lt Hj_lt i j a b.
+
+  -
+    destruct (tnum_get_negative a) as [a_neg|] eqn:Ha_neg; [| kill_none a i Hmem_a Hi_lt Ha_neg].
+    destruct (tnum_get_positive b) as [b_pos|] eqn:Hb_pos; [| kill_none b j Hmem_b Hj_ge Hb_pos].
+    
+    destruct (calc_neg_pos_opt (Some a_neg) (Some b_pos)) as [res|] eqn:Hcalc.
+    + assert (H_sound: mem_tnum (Int64.divs i j) res) by (eapply calc_neg_pos_sound; eauto).
+      destruct (calc_pos_pos_opt _ _); destruct (calc_neg_neg_opt _ _); destruct (calc_pos_neg_opt _ _).
+      all: drill_union.
+    + solve_calc_none Hcalc Hmem_a Hmem_b Hi_lt Hj_ge i j a b.
+
+  -
+    destruct (tnum_get_positive a) as [a_pos|] eqn:Ha_pos; [| kill_none a i Hmem_a Hi_ge Ha_pos].
+    destruct (tnum_get_negative b) as [b_neg|] eqn:Hb_neg; [| kill_none b j Hmem_b Hj_lt Hb_neg].
+    
+    destruct (calc_pos_neg_opt (Some a_pos) (Some b_neg)) as [res|] eqn:Hcalc.
+    + assert (H_sound: mem_tnum (Int64.divs i j) res) by (eapply calc_pos_neg_sound; eauto).
+      destruct (calc_pos_pos_opt _ _); destruct (calc_neg_neg_opt _ _); destruct (calc_neg_pos_opt _ _).
+      all: drill_union.
+    + solve_calc_none Hcalc Hmem_a Hmem_b Hi_ge Hj_lt i j a b.
+
+  -
+    destruct (tnum_get_positive a) as [a_pos|] eqn:Ha_pos; [| kill_none a i Hmem_a Hi_ge Ha_pos].
+    destruct (tnum_get_positive b) as [b_pos|] eqn:Hb_pos; [| kill_none b j Hmem_b Hj_ge Hb_pos].
+    
+    destruct (calc_pos_pos_opt (Some a_pos) (Some b_pos)) as [res|] eqn:Hcalc.
+    + assert (H_sound: mem_tnum (Int64.divs i j) res) by (eapply calc_pos_pos_sound; eauto).
+      destruct (calc_pos_neg_opt _ _); destruct (calc_neg_neg_opt _ _); destruct (calc_neg_pos_opt _ _).
+      all: drill_union.
+    + solve_calc_none Hcalc Hmem_a Hmem_b Hi_ge Hj_ge i j a b.
+Qed.
+
+Lemma tnum_msb_mone : forall a, mem_tnum Int64.mone a -> Int64_msb (fst a) = true \/ Int64_msb (snd a) = true.
+Proof.
+  intros.
+  unfold Int64_msb.
+  unfold mem_tnum in *.
+  rewrite <- H.
+  clear.
+  
+  pose proof (Classical_Prop.classic (Int64.lt (snd a) Int64.zero = true)) as Heq.
+  destruct Heq as [Heq | Heq].
+  { auto. }
+
+  left.
+  apply not_true_is_false in Heq.
+  remember (snd a) as t eqn: Ht.
+  clear - Heq.
+
+  rewrite Clt_Zlt_signed_false in Heq.
+  rewrite Clt_Zlt_signed.
+  change (Int64.signed Int64.zero) with 0 in *.
+  rewrite testbit_sign_neg in *.
+  rewrite testbit_sign_pos in *.
+
+  rewrite Int64.bits_and.
+  2:{ change (Int64.zwordsize) with 64. lia. }
+  rewrite andb_true_iff.
+  split.
+  - 
+    change (Int64.testbit Int64.mone (Int64.zwordsize - 1)) with true.
+    auto.
+  - rewrite Int64.bits_not.
+    2:{ change (Int64.zwordsize) with 64. lia. }
+    rewrite Heq.
+    auto.
+Qed.
+
 Theorem tnum_sdiv_sound :
   forall a b i j
     (H_dst: gamma_val i a)
@@ -1963,791 +2702,284 @@ Proof.
 
           subst j.
           apply mem_tnum_zero.
-        + unfold eval_div_s64; simpl.
-          destruct (Int64.eq j Int64.zero || Int64.eq i (Int64.repr Int64.min_signed) && Int64.eq j Int64.mone) eqn: Hm.
-          * destruct (Val.eq (Vlong j) (Vlong Int64.zero)) as [Hj | Hj].
-            { exfalso.
-              inversion Hj.
-              unfold mem_tnum in H_src.
-              rewrite H0 in *.
-              rewrite Int64.and_zero_l in H_src.
-              rewrite Hb_eq in Hb_v.
-              rewrite Int64.eq_true in Hb_v.
-              lia.
-            }
+      + unfold eval_div_s64; simpl.
+        destruct (Int64.eq j Int64.zero || Int64.eq i (Int64.repr Int64.min_signed) && Int64.eq j Int64.mone) eqn: Hm.
+        * destruct (Val.eq (Vlong j) (Vlong Int64.zero)) as [Hj | Hj].
+          { exfalso.
+            inversion Hj.
+            unfold mem_tnum in H_src.
+            rewrite H0 in *.
+            rewrite Int64.and_zero_l in H_src.
+            rewrite Hb_eq in Hb_v.
+            rewrite Int64.eq_true in Hb_v.
+            lia.
+          }
 
-            rewrite orb_true_iff in Hm.
-            destruct Hm as [Hm | Hm].
-            { exfalso. apply Hj. f_equal. apply Int64.same_if_eq in Hm. auto. }
+          rewrite orb_true_iff in Hm.
+          destruct Hm as [Hm | Hm].
+          { exfalso. apply Hj. f_equal. apply Int64.same_if_eq in Hm. auto. }
 
+          rewrite andb_true_iff in *.
+          destruct Hm as (Hm1 & Hm2).
+          apply Int64.same_if_eq in Hm1, Hm2.
+          assert (Heq: Coqlib.proj_sumbool (Val.eq (Vlong j) (Vlong Int64.mone)) && Coqlib.proj_sumbool (Val.eq (Vlong i) LLONG_MIN) = true).
+          {
             rewrite andb_true_iff in *.
-            destruct Hm as (Hm1 & Hm2).
-            apply Int64.same_if_eq in Hm1, Hm2.
-            assert (Heq: Coqlib.proj_sumbool (Val.eq (Vlong j) (Vlong Int64.mone)) && Coqlib.proj_sumbool (Val.eq (Vlong i) LLONG_MIN) = true).
-            {
-              rewrite andb_true_iff in *.
-              rewrite Hm1, Hm2.
-              destruct (Val.eq (Vlong Int64.mone) (Vlong Int64.mone)) as [Heq | Heq].
-              - simpl.
-                split; auto.
-              - exfalso. apply Heq; auto.
-            }
-            rewrite Heq; clear Heq.
+            rewrite Hm1, Hm2.
+            destruct (Val.eq (Vlong Int64.mone) (Vlong Int64.mone)) as [Heq | Heq].
+            - simpl.
+              split; auto.
+            - exfalso. apply Heq; auto.
+          }
+          rewrite Heq; clear Heq.
 
-            unfold LLONG_MIN.
-            rewrite Hb_eq.
-            rewrite Hb_m.
-            rewrite Hm2.
-            unfold tnum_sdiv_common; simpl.
-            destruct (Int64_msb (fst a)) eqn: Hlt.
-            {
-              rewrite Int64_mone_msb.
-              unfold tnum_union_opt.
-              unfold tnum_sdiv_helper; simpl.
-              rewrite Hlt. rewrite Int64_mone_msb. simpl.
-              change (tnum_abs (Int64.mone, Int64.zero)) with (Int64.one, Int64.zero).
-              rewrite <- (Int64.divu_one (Int64.repr Int64.min_signed)).
-              assert (Heq: a = (fst a, snd a)). { destruct a; simpl; auto. }
-              rewrite <- Heq; clear Heq.
-              apply tnum_udiv_sound.
-              { apply tnum_abs_ge. }
-
-              {
-                unfold tnum_ge_inv, to_tnumZ, tnum_abs.
-                split; simpl.
-                - change (Int64.unsigned Int64.one) with 1.
-                  lia.
-                - change (Int64.unsigned Int64.zero) with 0.
-                  lia.
-              }
-
-              {
-                unfold tnum_abs.
-                rewrite Hlt.
-                rewrite <- Int64.neg_involutive with (x := Int64.repr Int64.min_signed).
-                apply tnum_neg_sound.
-                unfold Int64_msb in Hlt.
-                change (Int64.neg (Int64.repr Int64.min_signed)) with (Int64.repr Int64.min_signed).
-                rewrite Hm1 in H_dst.
-                auto.
-              }
-
-              {
-                unfold mem_tnum.
-                simpl.
-                change (Int64.and Int64.one (Int64.not Int64.zero)) with Int64.one.
-                auto.
-              }
-            }
-            
-            destruct (Int64_msb (snd a)) eqn: Hlt1.
-            { rewrite Int64_mone_msb. simpl.
-              unfold tnum_sdiv_helper; simpl.
-              rewrite Int64_mone_msb. simpl.
-              change (tnum_abs (Int64.mone, Int64.zero)) with (Int64.one, Int64.zero).
-              assert (Heq: (Int64_msb (Int64.or (fst a) Int64_min_signed)) = true).
-              { unfold Int64_msb in *.
-                rewrite Clt_Zlt_signed_false in *.
-                rewrite Clt_Zlt_signed in *.
-                change (Int64.signed Int64.zero) with 0 in *.
-                rewrite testbit_sign_pos in *.
-                rewrite testbit_sign_neg in *.
-                rewrite Int64.bits_or.
-                2:{ change (Int64.zwordsize) with 64; lia. }
-                rewrite orb_true_iff.
-                right.
-                change (Int64.testbit (Int64.repr Int64.min_signed) (Int64.zwordsize - 1)) with true.
-                auto.
-              }
-              rewrite Heq; clear Heq.
-
-              simpl.
-              rewrite Hlt. simpl.
-
-              apply tnum_union_sound.
-
-              left.
-              rewrite <- (Int64.divu_one (Int64.repr Int64.min_signed)).
-              apply tnum_udiv_sound.
-              - apply tnum_abs_ge.
-              - unfold tnum_ge_inv, to_tnumZ, tnum_abs.
-                split; simpl.
-                + change (Int64.unsigned Int64.one) with 1.
-                  lia.
-                + change (Int64.unsigned Int64.zero) with 0.
-                  lia.
-              - unfold tnum_abs; simpl.
-                assert (Heq: Int64_msb (Int64.or (fst a) Int64_min_signed) = true).
-                { 
-                  unfold Int64_msb, Int64_min_signed in *.
-                  rewrite Clt_Zlt_signed_false in *.
-                  rewrite Clt_Zlt_signed in *.
-                  change (Int64.signed Int64.zero) with 0 in *.
-                  rewrite testbit_sign_pos in *.
-                  rewrite testbit_sign_neg in *.
-                  rewrite Int64.bits_or.
-                  2:{ change (Int64.zwordsize) with 64; lia. }
-                  rewrite orb_true_iff.
-                  right.
-                  change (Int64.testbit (Int64.repr Int64.min_signed) (Int64.zwordsize - 1)) with true.
-                  auto.
-                }
-                rewrite Heq; clear Heq.
-                
-                rewrite <- Int64.neg_involutive with (x := Int64.repr Int64.min_signed).
-                apply tnum_neg_sound.
-                change (Int64.neg (Int64.repr Int64.min_signed)) with (Int64.repr Int64.min_signed).
-                unfold mem_tnum in *.
-                rewrite <- H_dst in *.
-                simpl in *.
-                rewrite Int64.not_and_or_not.
-                rewrite Int64.not_involutive.
-                rewrite <- Int64.and_commut with (x:= Int64.not (snd a)).
-                rewrite Int64.or_and_distrib_l.
-                unfold Int64_min_signed.
-                rewrite Int64.and_commut. 
+          unfold LLONG_MIN.
+          rewrite Hb_eq.
+          rewrite Hb_m.
+          rewrite Hm2.
+          assert (H_a_neg_min: get_signed_min (match tnum_get_negative (fst a, snd a) with Some x => x | None => (Int64.zero, Int64.zero) end) = Int64.repr Int64.min_signed).
+          {
+            unfold tnum_get_negative, get_signed_min; simpl.
+            pose proof H_dst as Hmem. unfold mem_tnum in Hmem; simpl in Hmem.
+            destruct (Int64_msb (fst a)) eqn:Hmsb_v.
+            - rewrite <- Hmem. apply Int64.same_bits_eq; intros n Hn.
+              simpl. 
+              rewrite Int64.bits_and by auto.
+              destruct (Coqlib.zlt n (Int64.zwordsize - 1)).
+              + unfold Int64_min_signed. 
                 rewrite Hm1.
-                rewrite Int64.or_idem.
-                auto.
-              - unfold mem_tnum.
-                simpl.
-                change (Int64.and Int64.one (Int64.not Int64.zero)) with Int64.one.
-                auto.
-            }
+                rewrite !Int64.testbit_repr by auto.
+                change Int64.min_signed with (- two_p 63).
+                rewrite !Zbits.Ztestbit_neg_two_p by (change Int64.zwordsize with 64 in Hn; lia); try lia.
+                destruct (Coqlib.zlt n 63); try lia. simpl; auto.
+              + assert (n = Int64.zwordsize - 1) by lia; subst n.
+                unfold Int64_msb in Hmsb_v.
+                rewrite Clt_Zlt_signed in Hmsb_v.
+                change (Int64.signed Int64.zero) with 0 in Hmsb_v.
+                apply testbit_sign_neg in Hmsb_v.
+                rewrite <- Hmem in Hmsb_v. rewrite Int64.bits_and in Hmsb_v by lia.
+                unfold Int64_min_signed.
+                change (Int64.testbit (Int64.repr Int64.min_signed) (Int64.zwordsize - 1)) with true.
+                rewrite Hmsb_v; auto.
+            - rewrite Hm1 in H_dst.
+              apply tnum_msb in H_dst as Hmsb_or. destruct Hmsb_or as [Hmsb_v' | Hmsb_m].
+              { rewrite Hmsb_v in Hmsb_v'; discriminate. }
+              rewrite Hmsb_m.
+              rewrite <- Hmem. apply Int64.same_bits_eq; intros n Hn.
+              simpl. 
+              rewrite Int64.bits_or by auto. rewrite Int64.bits_and by auto.
+              destruct (Coqlib.zlt n (Int64.zwordsize - 1)).
+              + unfold Int64_min_signed. 
+                rewrite Hm1. 
+                rewrite !Int64.testbit_repr by auto. 
+                change Int64.min_signed with (- two_p 63). 
+                rewrite !Zbits.Ztestbit_neg_two_p by (change Int64.zwordsize with 64 in Hn; lia); try lia.
+                destruct (Coqlib.zlt n 63); try lia.
+              + assert (n = Int64.zwordsize - 1) by lia; subst n.
+                unfold Int64_min_signed.
+                change (Int64.testbit (Int64.repr Int64.min_signed) (Int64.zwordsize - 1)) with true.
+                rewrite orb_true_r; auto.
+          }
+          unfold tnum_sdiv_common.
+          change (tnum_get_positive (Int64.mone, Int64.zero)) with (@None tnum).
+          change (tnum_get_negative (Int64.mone, Int64.zero)) with (Some (Int64.mone, Int64.zero)).
+          
+          destruct (tnum_get_negative (fst a, snd a)) as [a_neg|] eqn:Ha_neg.
+          2:{
+            unfold get_signed_min in H_a_neg_min. simpl in H_a_neg_min.
+            apply (f_equal Int64.signed) in H_a_neg_min.
+            change (Int64.signed Int64.zero) with 0 in H_a_neg_min.
+            change (Int64.signed (Int64.repr Int64.min_signed)) with (-9223372036854775808) in H_a_neg_min.
+            lia.
+          }
+          unfold calc_neg_neg_opt.
+        
+          assert (H_calc : Int64.eq (get_signed_min a_neg) Int64_min_signed && Int64.eq (get_signed_max (Int64.mone, Int64.zero)) Int64.mone = true).
+          { rewrite H_a_neg_min. reflexivity. }
+          rewrite H_calc.
+          simpl.
 
-            rewrite Int64_mone_msb. simpl.
-            unfold tnum_sdiv_helper; simpl.
-            rewrite Hlt.
-            rewrite Int64_mone_msb. simpl.
-            
-            rewrite <- Int64.neg_involutive with (x := Int64.repr Int64.min_signed).
-            apply tnum_neg_sound.
-            change (Int64.neg (Int64.repr Int64.min_signed)) with (Int64.repr Int64.min_signed).
-            (*
-            change (Int64.neg (Int64.repr Int64.min_signed)) with (Int64.repr Int64.min_signed).
+          Opaque tnum_union.
+          destruct (Int64_msb (fst a)); destruct (Int64_msb (snd a)); simpl.
+          all: repeat match goal with 
+                 | |- context [if ?cond then _ else _] => destruct cond; simpl
+               end.
+          Transparent tnum_union.
+          all: repeat apply tnum_union_sound.
+          all: repeat ( (left; apply tnum_unknown_gamma) || right ).
+          all: try apply tnum_unknown_gamma.
 
-            rewrite mem_tnum_min_signed_iff. *)
-            replace (Int64.repr Int64.min_signed) with (Int64.divu (Int64.repr Int64.min_signed) Int64.one).
-            2:{ rewrite Int64.divu_one. auto. }
-            eapply tnum_udiv_sound.
-            { apply tnum_abs_ge. }
-            { unfold tnum_ge_inv, to_tnumZ, tnum_abs, tnum_neg.
-              split; simpl.
-              + apply Int64_unsigned_ge_0.
-              + apply Int64_unsigned_ge_0.
-            }
-            { (* rewrite <- mem_tnum_min_signed_iff. *)
-              unfold tnum_abs; simpl.
-              rewrite Hlt.
-              rewrite Hm1 in H_dst.
-              unfold mem_tnum in *.
-              simpl.
-              auto.
-            }
-            { unfold tnum_abs.
-              simpl.
-              rewrite Int64_mone_msb. simpl.
-              change (tnum_neg (Int64.mone, Int64.zero)) with (Int64.one, Int64.zero).
-              unfold mem_tnum.
-              simpl.
-              change (Int64.and Int64.one (Int64.not Int64.zero)) with Int64.one.
-              auto.
-            }
-             
-          * rewrite orb_false_iff in Hm.
-            destruct Hm as (Hm1 & Hm2).
-            rewrite andb_false_iff in Hm2.
-            unfold tnum_sdiv_common; simpl.
-            destruct (Int64_msb (fst a)) eqn: Hlt.
+        * rewrite orb_false_iff in Hm.
+          destruct Hm as (Hm1 & Hm2).
+          apply tnum_sdiv_common_sound; auto.
+          --
+             intro Hj_eq; subst j.
+             rewrite Hj_eq in Hm1.
+             rewrite Int64.eq_true in Hm1; discriminate.
+          --
+             intro H_over; destruct H_over as [Hi Hj].
+             rewrite Hi, Hj in Hm2.
+             rewrite !Int64.eq_true in Hm2.
+             simpl in Hm2; discriminate.
+  }
+  -
+    destruct (Int64.eq (fst b) Int64.zero) eqn:Hb_v0.
+          +
+            unfold eval_div_s64, LLONG_MIN; simpl.
+            destruct (Val.eq (Vlong j) (Vlong Int64.zero)) as [Hj0 | Hj0].
             {
-              destruct (Int64_msb (fst b)) eqn: Hlt1.
-              { unfold tnum_union_opt; simpl.
-                unfold tnum_sdiv_helper; simpl.
-                rewrite Hlt, Hlt1.
-                simpl.
-                (** Here we know i and j are negitive because of Int64_msb (fst a) = true /\ Int64_msb (fst b) = true *)
-                assert (Hi_neg: Int64.lt i Int64.zero = true).
-                { apply Int64_msb_lt with (b:= a); eauto. }
-                assert (Hj_neg: Int64.lt j Int64.zero = true).
-                { apply Int64_msb_lt with (b:= b); eauto. }
-
-                assert (Heq: Int64.divs i j = Int64.divu (Int64.neg i) (Int64.neg j)).
-                {  apply Int64_divs_eq; auto. }
-                rewrite Heq; clear Heq.
-
-                eapply tnum_udiv_sound.
-                - apply tnum_abs_ge.
-                - unfold tnum_ge_inv, to_tnumZ, tnum_abs, tnum_neg.
-                  split; simpl.
-                  + apply Int64_unsigned_ge_0.
-                  + apply Int64_unsigned_ge_0.
-                - (* rewrite <- mem_tnum_min_signed_iff. *)
-                  unfold tnum_abs; simpl.
-                  rewrite Hlt.
-                  apply tnum_neg_sound.
-                  unfold mem_tnum in *.
-                  simpl; auto.
-                - unfold tnum_abs.
-                  simpl.
-                  rewrite Hlt1.
-                  apply tnum_neg_sound.
-                  unfold mem_tnum in *.
-                  simpl; auto.
-              }
-
-              destruct (Int64_msb (snd b)) eqn: Hlt_b.
-              {
-                unfold tnum_union_opt; simpl.
-                unfold tnum_sdiv_helper; simpl.
-                rewrite Hlt, Hlt1.
-                simpl.
-                assert (Heq: Int64_msb (Int64.or (fst b) Int64_min_signed) = true).
-                { 
-                  unfold Int64_msb, Int64_min_signed in *.
-                  rewrite Clt_Zlt_signed_false in *.
-                  rewrite Clt_Zlt_signed in *.
-                  change (Int64.signed Int64.zero) with 0 in *.
-                  rewrite testbit_sign_pos in *.
-                  rewrite testbit_sign_neg in *.
-                  rewrite Int64.bits_or.
-                  2:{ change (Int64.zwordsize) with 64; lia. }
-                  rewrite orb_true_iff.
-                  right.
-                  change (Int64.testbit (Int64.repr Int64.min_signed) (Int64.zwordsize - 1)) with true.
-                  auto.
-                }
-                rewrite Heq; clear Heq.
-
-                apply tnum_union_sound.
-
-                (** Here we only know i is negitive because of Int64_msb (fst a) = true
-                  - when j is negitive i.e. Int64_msb j = true. Go right?
-                  - when j is postive i.e. Int64_msb j = false. Go left?
-                *)
-                destruct (Int64_msb j) eqn: Hi_eq.
+              inversion Hj0; subst j.
+              rewrite Int64.eq_true. simpl. apply tnum_unknown_gamma. }
+              
+            destruct (Val.eq (Vlong j) (Vlong Int64.mone)) as [Hj1 | Hj1]; simpl.
+            { destruct (Val.eq (Vlong i) (Vlong (Int64.repr Int64.min_signed))) as [Hi_min | Hi_min]; simpl.
+              -
+                inversion Hj1; subst j. inversion Hi_min; subst i.
+                rewrite !Int64.eq_true. simpl. apply tnum_unknown_gamma.
+              -
+                inversion Hj1; subst j.
+                destruct (Int64.eq i (Int64.repr Int64.min_signed)) eqn:E_i.
+                { apply Int64.same_if_eq in E_i. exfalso. apply Hi_min. f_equal. auto. }
+                simpl. apply tnum_unknown_gamma.
+            }
+            {
+              destruct (Int64.eq j Int64.zero) eqn:E_j0.
+              { apply Int64.same_if_eq in E_j0. exfalso. apply Hj0. f_equal. auto. }
+              destruct (Int64.eq j Int64.mone) eqn:E_j1.
+              { apply Int64.same_if_eq in E_j1. exfalso. apply Hj1. f_equal. auto. }
+              destruct (Int64.eq i (Int64.repr Int64.min_signed)).
+              all: simpl; apply tnum_unknown_gamma.
+            }
+    + simpl.
+      unfold eval_div_s64; simpl.
+      destruct (Int64.eq j Int64.zero || Int64.eq i (Int64.repr Int64.min_signed) && Int64.eq j Int64.mone) eqn: Hm.
+      *
+                destruct (Val.eq (Vlong j) (Vlong Int64.zero)) as [Hj | Hj].
                 {
-                  right.
-                  admit.
+                  exfalso. inversion Hj. subst j.
+                  unfold mem_tnum in H_src. rewrite Int64.and_zero_l in H_src.
+                  rewrite <- H_src in Hb_v0. rewrite Int64.eq_true in Hb_v0. discriminate.
                 }
-                admit.
-              }
-
-              unfold tnum_union_opt; simpl.
-              admit.
-            }
-              ../..
-
-                (** Here we know i and j are negitive because of Int64_msb (fst a) = true /\ Int64_msb (fst b) = true *)
-                assert (Hi_neg: Int64.lt i Int64.zero = true).
-                { apply Int64_msb_lt with (b:= a); eauto. }
-                assert (Hj_neg: Int64.lt j Int64.zero = true).
-                { apply Int64_msb_lt with (b:= b); eauto. }
-
-                assert (Heq: Int64.divs i j = Int64.divu (Int64.neg i) (Int64.neg j)).
-                {  apply Int64_divs_eq; auto. }
-                rewrite Heq; clear Heq.
-
-                eapply tnum_udiv_sound.
-                - apply tnum_abs_ge.
-                - unfold tnum_ge_inv, to_tnumZ, tnum_abs, tnum_neg.
-                  split; simpl.
-                  + apply Int64_unsigned_ge_0.
-                  + apply Int64_unsigned_ge_0.
-                - (* rewrite <- mem_tnum_min_signed_iff. *)
-                  unfold tnum_abs; simpl.
-                  rewrite Hlt.
-                  apply tnum_neg_sound.
-                  unfold mem_tnum in *.
-                  simpl; auto.
-                - unfold tnum_abs.
-                  simpl.
-                  rewrite Hlt1.
-                  apply tnum_neg_sound.
-                  unfold mem_tnum in *.
-                  simpl; auto.
-              }
-
-
-              rewrite Int64_mone_msb.
-              unfold tnum_union_opt.
-              unfold tnum_sdiv_helper; simpl.
-              rewrite Hlt. rewrite Int64_mone_msb. simpl.
-              change (tnum_abs (Int64.mone, Int64.zero)) with (Int64.one, Int64.zero).
-              rewrite <- (Int64.divu_one (Int64.repr Int64.min_signed)).
-              assert (Heq: a = (fst a, snd a)). { destruct a; simpl; auto. }
-              rewrite <- Heq; clear Heq.
-              apply tnum_udiv_sound.
-              { apply tnum_abs_ge. }
-
-              {
-                unfold tnum_ge_inv, to_tnumZ, tnum_abs.
-                split; simpl.
-                - change (Int64.unsigned Int64.one) with 1.
-                  lia.
-                - change (Int64.unsigned Int64.zero) with 0.
-                  lia.
-              }
-
-              {
-                unfold tnum_abs.
-                rewrite Hlt.
-                rewrite <- Int64.neg_involutive with (x := Int64.repr Int64.min_signed).
-                apply tnum_neg_sound.
-                unfold Int64_msb in Hlt.
-                change (Int64.neg (Int64.repr Int64.min_signed)) with (Int64.repr Int64.min_signed).
-                rewrite Hm1 in H_dst.
-                auto.
-              }
-
-              {
-                unfold mem_tnum.
-                simpl.
-                change (Int64.and Int64.one (Int64.not Int64.zero)) with Int64.one.
-                auto.
-              }
-            }
-            
-            destruct (Int64_msb (snd a)) eqn: Hlt1.
-            { rewrite Int64_mone_msb. simpl.
-              unfold tnum_sdiv_helper; simpl.
-              rewrite Int64_mone_msb. simpl.
-              change (tnum_abs (Int64.mone, Int64.zero)) with (Int64.one, Int64.zero).
-              assert (Heq: (Int64_msb (Int64.or (fst a) Int64_min_signed)) = true).
-              { unfold Int64_msb in *.
-                rewrite Clt_Zlt_signed_false in *.
-                rewrite Clt_Zlt_signed in *.
-                change (Int64.signed Int64.zero) with 0 in *.
-                rewrite testbit_sign_pos in *.
-                rewrite testbit_sign_neg in *.
-                rewrite Int64.bits_or.
-                2:{ change (Int64.zwordsize) with 64; lia. }
-                rewrite orb_true_iff.
-                right.
-                change (Int64.testbit (Int64.repr Int64.min_signed) (Int64.zwordsize - 1)) with true.
-                auto.
-              }
-              rewrite Heq; clear Heq.
-
-              simpl.
-              rewrite Hlt. simpl.
-
-              apply tnum_union_sound.
-
-              left.
-              rewrite <- (Int64.divu_one (Int64.repr Int64.min_signed)).
-              apply tnum_udiv_sound.
-              - apply tnum_abs_ge.
-              - unfold tnum_ge_inv, to_tnumZ, tnum_abs.
-                split; simpl.
-                + change (Int64.unsigned Int64.one) with 1.
-                  lia.
-                + change (Int64.unsigned Int64.zero) with 0.
-                  lia.
-              - unfold tnum_abs; simpl.
-                assert (Heq: Int64_msb (Int64.or (fst a) Int64_min_signed) = true).
-                { 
-                  unfold Int64_msb, Int64_min_signed in *.
-                  rewrite Clt_Zlt_signed_false in *.
-                  rewrite Clt_Zlt_signed in *.
-                  change (Int64.signed Int64.zero) with 0 in *.
-                  rewrite testbit_sign_pos in *.
-                  rewrite testbit_sign_neg in *.
-                  rewrite Int64.bits_or.
-                  2:{ change (Int64.zwordsize) with 64; lia. }
-                  rewrite orb_true_iff.
-                  right.
-                  change (Int64.testbit (Int64.repr Int64.min_signed) (Int64.zwordsize - 1)) with true.
-                  auto.
-                }
-                rewrite Heq; clear Heq.
                 
-                rewrite <- Int64.neg_involutive with (x := Int64.repr Int64.min_signed).
-                apply tnum_neg_sound.
-                change (Int64.neg (Int64.repr Int64.min_signed)) with (Int64.repr Int64.min_signed).
-                unfold mem_tnum in *.
-                rewrite <- H_dst in *.
-                simpl in *.
-                rewrite Int64.not_and_or_not.
-                rewrite Int64.not_involutive.
-                rewrite <- Int64.and_commut with (x:= Int64.not (snd a)).
-                rewrite Int64.or_and_distrib_l.
-                unfold Int64_min_signed.
-                rewrite Int64.and_commut. 
-                rewrite Hm1.
-                rewrite Int64.or_idem.
-                auto.
-              - unfold mem_tnum.
-                simpl.
-                change (Int64.and Int64.one (Int64.not Int64.zero)) with Int64.one.
-                auto.
-            }
+                rewrite orb_true_iff in Hm.
+                destruct Hm as [Hm_zero | Hm_over].
+                { exfalso. apply Hj. f_equal. apply Int64.same_if_eq in Hm_zero. auto. }
+                rewrite andb_true_iff in Hm_over. destruct Hm_over as (Hm1 & Hm2).
+                apply Int64.same_if_eq in Hm1, Hm2.
+                
+                unfold tnum_sdiv_common.
+                destruct (tnum_get_negative (fst a, snd a)) as [a_neg|] eqn:Ha_neg.
+                2:{
+                  rewrite Hm1 in H_dst. apply tnum_msb in H_dst.
+                  unfold tnum_get_negative in Ha_neg. destruct a as [a_v a_m]; simpl in *.
+                  destruct H_dst as [H_v | H_m].
+                  - rewrite H_v in Ha_neg; discriminate.
+                  - destruct (Int64_msb a_v); [discriminate | rewrite H_m in Ha_neg; discriminate].
+                }
+                
+                destruct (tnum_get_negative (fst b, snd b)) as [b_neg|] eqn:Hb_neg.
+                2:{
+                  rewrite Hm2 in H_src. apply tnum_msb_mone in H_src.
+                  unfold tnum_get_negative in Hb_neg. destruct b as [b_v b_m]; simpl in *.
+                  destruct H_src as [H_v | H_m].
+                  - rewrite H_v in Hb_neg; discriminate.
+                  - destruct (Int64_msb b_v); [discriminate | rewrite H_m in Hb_neg; discriminate].
+                }
 
-            rewrite Int64_mone_msb. simpl.
-            unfold tnum_sdiv_helper; simpl.
-            rewrite Hlt.
-            rewrite Int64_mone_msb. simpl.
-            
-            rewrite <- Int64.neg_involutive with (x := Int64.repr Int64.min_signed).
-            apply tnum_neg_sound.
-            change (Int64.neg (Int64.repr Int64.min_signed)) with (Int64.repr Int64.min_signed).
-            (*
-            change (Int64.neg (Int64.repr Int64.min_signed)) with (Int64.repr Int64.min_signed).
+                assert (H_a_neg_min: get_signed_min a_neg = Int64.repr Int64.min_signed).
+                {
+                  unfold tnum_get_negative in Ha_neg. unfold get_signed_min.
+                  destruct a as [a_v a_m]. simpl in *.
+                  pose proof H_dst as Hmem. unfold mem_tnum in Hmem. simpl in Hmem.
+                  destruct (Int64_msb a_v) eqn:Hmsb_v.
+                  - injection Ha_neg as <-. simpl.
+                    rewrite <- Hmem. apply Int64.same_bits_eq; intros n Hn.
+                    simpl. rewrite Int64.bits_and by auto.
+                    destruct (Coqlib.zlt n (Int64.zwordsize - 1)).
+                    + unfold Int64_min_signed. rewrite Hm1. rewrite !Int64.testbit_repr by auto.
+                      change Int64.min_signed with (- two_p 63).
+                      rewrite !Zbits.Ztestbit_neg_two_p by (change Int64.zwordsize with 64 in Hn; lia); try lia.
+                      destruct (Coqlib.zlt n 63); try lia. simpl; auto.
+                    + assert (n = Int64.zwordsize - 1) by lia; subst n.
+                      unfold Int64_msb in Hmsb_v. rewrite Clt_Zlt_signed in Hmsb_v.
+                      change (Int64.signed Int64.zero) with 0 in Hmsb_v.
+                      apply testbit_sign_neg in Hmsb_v.
+                      rewrite <- Hmem in Hmsb_v. rewrite Int64.bits_and in Hmsb_v by lia.
+                      unfold Int64_min_signed. change (Int64.testbit (Int64.repr Int64.min_signed) (Int64.zwordsize - 1)) with true.
+                      rewrite Hmsb_v; auto.
+                  - rewrite Hm1 in H_dst. apply tnum_msb in H_dst as Hmsb_or.
+                    destruct Hmsb_or as [Hmsb_v' | Hmsb_m_true].
+                    { simpl in Hmsb_v'. rewrite Hmsb_v in Hmsb_v'; discriminate. }
+                    simpl in Hmsb_m_true. rewrite Hmsb_m_true in Ha_neg. injection Ha_neg as <-.
+                    rewrite <- Hmem. apply Int64.same_bits_eq; intros n Hn.
+                    simpl. rewrite Int64.bits_or by auto. rewrite Int64.bits_and by auto.
+                    destruct (Coqlib.zlt n (Int64.zwordsize - 1)).
+                    + unfold Int64_min_signed. rewrite Hm1. rewrite !Int64.testbit_repr by auto.
+                      change Int64.min_signed with (- two_p 63).
+                      rewrite !Zbits.Ztestbit_neg_two_p by (change Int64.zwordsize with 64 in Hn; lia); try lia.
+                      destruct (Coqlib.zlt n 63); try lia.
+                    + assert (n = Int64.zwordsize - 1) by lia; subst n.
+                      unfold Int64_min_signed. change (Int64.testbit (Int64.repr Int64.min_signed) (Int64.zwordsize - 1)) with true.
+                      rewrite orb_true_r; auto.
+                }
 
-            rewrite mem_tnum_min_signed_iff. *)
-            replace (Int64.repr Int64.min_signed) with (Int64.divu (Int64.repr Int64.min_signed) Int64.one).
-            2:{ rewrite Int64.divu_one. auto. }
-            eapply tnum_udiv_sound.
-            { apply tnum_abs_ge. }
-            { unfold tnum_ge_inv, to_tnumZ, tnum_abs, tnum_neg.
-              split; simpl.
-              + apply Int64_unsigned_ge_0.
-              + apply Int64_unsigned_ge_0.
-            }
-            { (* rewrite <- mem_tnum_min_signed_iff. *)
-              unfold tnum_abs; simpl.
-              rewrite Hlt.
-              rewrite Hm1 in H_dst.
-              unfold mem_tnum in *.
-              simpl.
-              auto.
-            }
-            { unfold tnum_abs.
-              simpl.
-              rewrite Int64_mone_msb. simpl.
-              change (tnum_neg (Int64.mone, Int64.zero)) with (Int64.one, Int64.zero).
-              unfold mem_tnum.
-              simpl.
-              change (Int64.and Int64.one (Int64.not Int64.zero)) with Int64.one.
-              auto.
-            }
-      + simpl. apply tnum_unknown_gamma.
-      + simpl.
-        unfold tnum_sdiv_common.
-        unfold tnum_get_positive.
-        destruct (Int64_msb (fst a)) eqn: Ha_v.
-        * unfold tnum_get_negative; simpl.
-          rewrite Ha_v; simpl.
-          destruct (Int64_msb (fst b)) eqn: Hb_v.
-          {
-            unfold tnum_union_opt; simpl.
-            unfold tnum_sdiv_helper; simpl.
-            rewrite Ha_v, Hb_v.
-            simpl.
-            replace (Int64.repr Int64.min_signed) with (Int64.divu (Int64.repr Int64.min_signed) Int64.one).
-            2:{ rewrite Int64.divu_one. auto. }  (*
-            rewrite mem_tnum_min_signed_iff.
-            change (Int64.repr (2 ^ 63)) with (Int64.divu (Int64.repr (2 ^ 63)) Int64.one). *)
-            eapply tnum_udiv_sound.
-            - apply tnum_abs_ge.
-            - unfold tnum_ge_inv, to_tnumZ, tnum_abs, tnum_neg.
-              split; simpl.
-              + apply Int64_unsigned_ge_0.
-              + apply Int64_unsigned_ge_0.
-            - (* rewrite <- mem_tnum_min_signed_iff. *)
-              unfold tnum_abs; simpl.
-              rewrite Ha_v.
-              rewrite <- Int64.neg_involutive with (x := Int64.repr Int64.min_signed).
-              apply tnum_neg_sound.
-              change (Int64.neg (Int64.repr Int64.min_signed)) with (Int64.repr Int64.min_signed).
-              auto.
-            - unfold tnum_abs.
-              simpl.
-              rewrite Hb_v.
-              replace Int64.one with (Int64.neg Int64.mone).
-              apply tnum_neg_sound.
-              auto.
-              unfold Int64.neg.
-              unfold Int64.mone, Int64.one.
-              change (Int64.unsigned (Int64.repr (-1))) with 18446744073709551615.
-              simpl. 
-              Search Int64.neg. 
-          }
+                assert (H_b_neg_max: get_signed_max b_neg = Int64.mone).
+                {
+                  assert (Hmem_b_neg: mem_tnum Int64.mone b_neg).
+                  { rewrite Hm2 in H_src. 
+                    apply tnum_get_negative_sound with (a := b) (i := Int64.mone) (a_neg := b_neg).
+                    - exact H_src.
+                    - change (Int64.signed Int64.mone) with (-1). lia.
+                    - destruct b. exact Hb_neg.
+                  }
+                  unfold mem_tnum in Hmem_b_neg. rewrite Int64.and_mone_l in Hmem_b_neg.
+                  unfold get_signed_max. rewrite <- Hmem_b_neg.
+                  apply Int64.same_bits_eq; intros n Hn.
+                  rewrite Int64.bits_or by auto. rewrite Int64.bits_not by auto.
+                  destruct b_neg as [b_neg_v b_neg_m]. simpl in *.
+                  rewrite Int64.bits_mone by auto.
+                  destruct (Int64.testbit b_neg_m n); reflexivity.
+                }
+
+                subst i j. unfold LLONG_MIN.
+                assert (H_if : Coqlib.proj_sumbool (Val.eq (Vlong Int64.mone) (Vlong Int64.mone)) && Coqlib.proj_sumbool (Val.eq (Vlong (Int64.repr Int64.min_signed)) (Vlong (Int64.repr Int64.min_signed))) = true).
+                {
+                  unfold Coqlib.proj_sumbool.
+                  destruct (Val.eq (Vlong Int64.mone) (Vlong Int64.mone)) as [_ | Hneq1]; [|exfalso; apply Hneq1; auto].
+                  destruct (Val.eq (Vlong (Int64.repr Int64.min_signed)) (Vlong (Int64.repr Int64.min_signed))) as [_ | Hneq2]; [|exfalso; apply Hneq2; auto].
+                  reflexivity.
+                }
+                rewrite H_if. simpl.
+                unfold tnum_union_opt. unfold calc_neg_neg_opt.
+                assert (H_calc : Int64.eq (get_signed_min a_neg) Int64_min_signed && Int64.eq (get_signed_max b_neg) Int64.mone = true).
+                { rewrite H_a_neg_min, H_b_neg_max. reflexivity. }
+                rewrite H_calc.
+                
+                Opaque tnum_union.
+                repeat match goal with
+                | |- context [if ?cond then _ else _] => destruct cond; simpl
+                end.
+                Transparent tnum_union.
+                
+               Ltac find_unknown :=
+            match goal with
+            | |- mem_tnum _ tnum_unknown => apply tnum_unknown_gamma
+            | |- _ \/ _ => (left; find_unknown) + (right; find_unknown)
+            | |- mem_tnum _ (tnum_union _ _) => apply tnum_union_sound; find_unknown
+            end.
+          
+          all: find_unknown.
+
+      *
+            rewrite orb_false_iff in Hm.
+            destruct Hm as (Hm1 & Hm2).
+            apply tnum_sdiv_common_sound; auto.
+            -- intro Hj_eq; subst j.
+               rewrite Int64.eq_true in Hm1; discriminate.
+            -- intro H_over; destruct H_over as [Hi Hj].
+               rewrite Hi, Hj in Hm2.
+               rewrite !Int64.eq_true in Hm2.
+               simpl in Hm2; discriminate.
+Qed.
 
 
-              assert (Heq: Int64_msb Int64.mone = true).
-              { Search Int64_msb. unfold  }
-              subst i.
-              unfold mem_tnum in H_dst.
-              rewrite <- H_dst.
-              rewrite Clt_Zlt_signed.
-              change (Int64.signed Int64.zero) with 0 in *.
-              rewrite testbit_sign_neg in *.
-              rewrite Int64.bits_and.
-              2:{ change (Int64.zwordsize) with 64; lia. }
-              rewrite Int64.bits_not.
-              2:{ change (Int64.zwordsize) with 64; lia. }
-              change (Int64.testbit (Int64.repr Int64.min_signed) (Int64.zwordsize - 1)) with true.
-              rewrite andb_true_l.
-              simpl.
-              rewrite orb_true_iff.
-              right.
-              change (Int64.testbit (Int64.repr Int64.min_signed) (Int64.zwordsize - 1)) with true.
-              auto.
-
-              Search Int64.lt.
-            }
-            rewrite orb_true_iff in Hm.
-            unfold Int64_min_signed, mem_tnum  in *.
-            rewrite Hb_m in H_src.
-            rewrite Int64.not_zero in *.
-            rewrite Int64.and_mone in *.
-            subst j.
-            rewrite Hb_v.
-            split; auto.
-            destruct Hm as [Hm | Hm].
-            - rewrite Hm.
-              auto.
-            - rewrite Hm.
-              lia.
-          }
-  }
-  ../..
-  unfold eval_div_s64; simpl.
-  unfold tnum_sdiv.
-  rewrite (surjective_pairing a), (surjective_pairing b).
-  destruct (Val.eq (Vlong j) (Vlong Int64.zero)) as [Hn | Hn] eqn:E1; simpl.
-  { injection Hn as E_j0.
-    rewrite E_j0. rewrite Int64.eq_true. simpl.
-    rewrite E_j0 in H_src. unfold mem_tnum in H_src.
-    rewrite Int64.and_zero_l in H_src.
-    rewrite <- H_src. rewrite Int64.eq_true.
-    destruct (Int64.eq (snd b) Int64.zero) eqn:Hb_m0; reflexivity.
-  }
-  
-  assert (Heq: Int64.eq j Int64.zero = false).
-  {
-    clear - Hn.
-    apply Int64.eq_false.
-    intro HF.
-    apply Hn.
-    subst j.
-    auto.
-  }
-  rewrite Heq; clear Heq.
-  simpl.
-
-  destruct (Coqlib.proj_sumbool (Val.eq (Vlong j) (Vlong Int64.mone)) &&
-            Coqlib.proj_sumbool (Val.eq (Vlong i) LLONG_MIN)) eqn:E2.
-  { apply andb_prop in E2. destruct E2 as [E2 E2'].
-    apply Coqlib.proj_sumbool_true in E2, E2'.
-    unfold LLONG_MIN in E2'.
-    injection E2 as E2. injection E2' as E2'.
-    rewrite E2, E2'.
-    rewrite! Int64.eq_true. simpl.
-    rewrite E2 in H_src. rewrite E2' in H_dst.
-    (*
-    unfold mem_tnum in H_src.
-    rewrite Int64.and_mone_l in H_src. *)
-    destruct (Int64.eq (snd b) Int64.zero) eqn:Hb_m0.
-    - apply Int64.same_if_eq in Hb_m0.
-      unfold mem_tnum in H_src.
-      rewrite Int64.and_mone_l in H_src.
-      rewrite Hb_m0 in *.
-      rewrite Int64.not_zero in H_src.
-      rewrite <- H_src.
-      change (Int64.eq Int64.mone Int64.zero) with false; simpl.
-      destruct (Int64.eq (snd a) Int64.zero) eqn:Ha_m0.
-      + apply Int64.same_if_eq in Ha_m0.
-        unfold mem_tnum in H_dst.
-        rewrite Ha_m0 in H_dst.
-        rewrite Int64.not_zero in H_dst.
-        rewrite <- H_dst.
-        change (Int64.eq (Int64.and (Int64.repr Int64.min_signed) Int64.mone) Int64_min_signed
-             && Int64.eq Int64.mone Int64.mone) with true; simpl.
-        unfold mem_tnum. unfold Int64_min_signed. simpl.
-        rewrite Int64.not_zero. rewrite Int64.and_mone. reflexivity.
-      + unfold tnum_sdiv_common. simpl.
-        apply tnum_msb in H_dst as H. destruct H.
-        * rewrite H. rewrite Int64_mone_msb. simpl.
-          unfold tnum_sdiv_helper; simpl.
-          rewrite H. rewrite Int64_mone_msb. simpl.
-          change (tnum_abs (Int64.mone, Int64.zero)) with (Int64.one, Int64.zero).
-          rewrite <- (Int64.divu_one (Int64.repr Int64.min_signed)).
-          assert (Heq: a = (fst a, snd a)). { destruct a; simpl; auto. }
-          rewrite <- Heq; clear Heq.
-          apply tnum_udiv_sound.
-          { apply tnum_abs_ge. }
-
-          {
-            unfold tnum_ge_inv, to_tnumZ, tnum_abs.
-            split; simpl.
-            - change (Int64.unsigned Int64.one) with 1.
-              lia.
-            - change (Int64.unsigned Int64.zero) with 0.
-              lia.
-          }
-
-          {
-            unfold tnum_abs.
-            rewrite H.
-            rewrite <- Int64.neg_involutive with (x := Int64.repr Int64.min_signed).
-            apply tnum_neg_sound.
-            clear - H_dst Ha_m0 H.
-            unfold Int64_msb in H.
-            change (Int64.neg (Int64.repr Int64.min_signed)) with (Int64.repr Int64.min_signed).
-            auto.
-          }
-
-          {
-            unfold mem_tnum.
-            simpl.
-            change (Int64.and Int64.one (Int64.not Int64.zero)) with Int64.one.
-            auto.
-          }
-        * rewrite H. rewrite Int64_mone_msb. simpl.
-          unfold tnum_sdiv_helper; simpl.
-          rewrite Int64_mone_msb. simpl.
-          change (tnum_abs (Int64.mone, Int64.zero)) with (Int64.one, Int64.zero).
-          assert (Heq: a = (fst a, snd a)). { destruct a; simpl; auto. }
-          rewrite <- Heq; clear Heq.
-          destruct (Int64_msb (fst a)) eqn: Hlt.
-          {
-            rewrite Hlt.
-            simpl.
-            replace (Int64.repr Int64.min_signed) with (Int64.divu (Int64.repr Int64.min_signed) Int64.one).
-            2:{ rewrite Int64.divu_one. auto. } 
-            apply tnum_udiv_sound.
-            - apply tnum_abs_ge.
-            - unfold tnum_ge_inv, to_tnumZ, tnum_abs.
-              split; simpl.
-              + change (Int64.unsigned Int64.one) with 1.
-                lia.
-              + change (Int64.unsigned Int64.zero) with 0.
-                lia.
-            - unfold tnum_abs.
-              rewrite Hlt.
-              rewrite <- Int64.neg_involutive with (x := Int64.repr Int64.min_signed).
-              apply tnum_neg_sound.
-              clear - H_dst Ha_m0 H.
-              unfold Int64_msb in H.
-              change (Int64.neg (Int64.repr Int64.min_signed)) with (Int64.repr Int64.min_signed).
-              auto.
-            - unfold mem_tnum.
-              simpl.
-              change (Int64.and Int64.one (Int64.not Int64.zero)) with Int64.one.
-              auto.
-          }
-
-          {
-            simpl.
-            assert (Heq: (Int64_msb (Int64.or (fst a) Int64_min_signed)) = true).
-            { unfold Int64_msb, Int64_min_signed.
-              rewrite Clt_Zlt_signed.
-              change (Int64.signed Int64.zero) with 0 in *.
-              rewrite testbit_sign_neg.
-              rewrite Int64.bits_or.
-              2:{ change (Int64.zwordsize) with 64; lia. }
-              rewrite orb_true_iff.
-              right.
-              change (Int64.testbit (Int64.repr Int64.min_signed) (Int64.zwordsize - 1)) with true.
-              auto.
-            }
-            rewrite Heq; clear Heq.
-            simpl.
-            rewrite Hlt; simpl.
-            apply tnum_union_sound.
-
-            left.
-            rewrite <- (Int64.divu_one (Int64.repr Int64.min_signed)).
-            apply tnum_udiv_sound.
-            - apply tnum_abs_ge.
-            - unfold tnum_ge_inv, to_tnumZ, tnum_abs.
-              split; simpl.
-              + change (Int64.unsigned Int64.one) with 1.
-                lia.
-              + change (Int64.unsigned Int64.zero) with 0.
-                lia.
-            - unfold tnum_abs; simpl.
-              assert (Heq: Int64_msb (Int64.or (fst a) Int64_min_signed) = true).
-              { 
-                unfold Int64_msb, Int64_min_signed in *.
-                rewrite Clt_Zlt_signed_false in *.
-                rewrite Clt_Zlt_signed in *.
-                change (Int64.signed Int64.zero) with 0 in *.
-                rewrite testbit_sign_pos in *.
-                rewrite testbit_sign_neg in *.
-                rewrite Int64.bits_or.
-                2:{ change (Int64.zwordsize) with 64; lia. }
-                rewrite orb_true_iff.
-                right.
-                change (Int64.testbit (Int64.repr Int64.min_signed) (Int64.zwordsize - 1)) with true.
-                auto.
-              }
-              rewrite Heq; clear Heq.
-              clear - H_dst H Hlt.
-              rewrite <- Int64.neg_involutive with (x := Int64.repr Int64.min_signed).
-              apply tnum_neg_sound.
-              change (Int64.neg (Int64.repr Int64.min_signed)) with (Int64.repr Int64.min_signed).
-              unfold mem_tnum in *.
-              rewrite <- H_dst in *.
-              simpl in *.
-              rewrite Int64.not_and_or_not.
-              rewrite Int64.not_involutive.
-              rewrite <- Int64.and_commut with (x:= Int64.not (snd a)).
-              rewrite Int64.or_and_distrib_l.
-              unfold Int64_min_signed. 
-              rewrite Int64.or_idem.
-              rewrite Int64.and_commut.
-              auto.
-            - unfold mem_tnum.
-              simpl.
-              change (Int64.and Int64.one (Int64.not Int64.zero)) with Int64.one.
-              auto.
-          }
-
-    - 
-      destruct (Int64.eq (fst b) Int64.zero) eqn:Hb_v0.
-      + simpl. apply tnum_unknown_gamma.
-      + simpl.
-        unfold tnum_sdiv_common.
-        unfold tnum_get_positive.
-        destruct (Int64_msb (fst a)) eqn: Ha_v.
-        * unfold tnum_get_negative; simpl.
-          rewrite Ha_v; simpl.
-          destruct (Int64_msb (fst b)) eqn: Hb_v.
-          {
-            unfold tnum_union_opt; simpl.
-            unfold tnum_sdiv_helper; simpl.
-            rewrite Ha_v, Hb_v.
-            simpl.
-            replace (Int64.repr Int64.min_signed) with (Int64.divu (Int64.repr Int64.min_signed) Int64.one).
-            2:{ rewrite Int64.divu_one. auto. }  (*
-            rewrite mem_tnum_min_signed_iff.
-            change (Int64.repr (2 ^ 63)) with (Int64.divu (Int64.repr (2 ^ 63)) Int64.one). *)
-            eapply tnum_udiv_sound.
-            - apply tnum_abs_ge.
-            - unfold tnum_ge_inv, to_tnumZ, tnum_abs, tnum_neg.
-              split; simpl.
-              + apply Int64_unsigned_ge_0.
-              + apply Int64_unsigned_ge_0.
-            - (* rewrite <- mem_tnum_min_signed_iff. *)
-              unfold tnum_abs; simpl.
-              rewrite Ha_v.
-              rewrite <- Int64.neg_involutive with (x := Int64.repr Int64.min_signed).
-              apply tnum_neg_sound.
-              change (Int64.neg (Int64.repr Int64.min_signed)) with (Int64.repr Int64.min_signed).
-              auto.
-            - unfold tnum_abs.
-              simpl.
-              rewrite Hb_v.
-              replace Int64.one with (Int64.neg Int64.mone).
-              apply tnum_neg_sound.
-              auto.
-              unfold Int64.neg.
-              unfold Int64.mone, Int64.one.
-              change (Int64.unsigned (Int64.repr (-1))) with 18446744073709551615.
-              simpl. 
-              Search Int64.neg. 
-          }
-          unfold tnum_union_opt; simpl.
-        ../..
-        rewrite <- H_src in *.
-        clear - Hb_m0 Hb_v0.
-        apply Int64_eq_false in Hb_m0, Hb_v0.
-        apply Hb_m0; clear Hb_m0.
-        Search (Int64.not).
-        admit.
-  }
-  admit.
-Admitted.
-*)
