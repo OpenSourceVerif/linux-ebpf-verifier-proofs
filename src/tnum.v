@@ -293,6 +293,46 @@ Definition tnum_umod (a b: tnum): tnum :=
     let mask := Int64_ones (Z_size_Z (Int64_min a_max b_max)) in
       (Int64.and (fst res) mask, Int64.and (snd res) mask).
 
+Definition tnum_nonnegative (a : tnum) : bool :=
+  negb (Int64_msb (Int64.or (fst a) (snd a))).
+
+Definition tnum_negative (a : tnum) : bool :=
+  Int64_msb (fst a).
+
+Definition tnum_low_bits_zero (a : tnum) (low_bits : u64) : bool :=
+  Int64.eq (Int64.and (Int64.or (fst a) (snd a)) low_bits) Int64.zero.
+
+Definition tnum_smod_high_bits (a res : tnum) : tnum :=
+  let mask := Int64_ones (Int64_size (Int64.or (fst a) (snd a))) in
+    (Int64.and (fst res) mask, Int64.and (snd res) mask).
+
+Definition tnum_smod_pow2 (a b : tnum) : tnum :=
+  let res := mod_get_low_bits a b in
+  let low_bits := Int64.sub (fst b) Int64.one in
+  if tnum_nonnegative a || tnum_low_bits_zero a low_bits then
+    (Int64.and (fst res) low_bits, Int64.and (snd res) low_bits)
+  else if tnum_negative a && negb (Int64.eq (Int64.and (fst a) low_bits) Int64.zero) then
+    (Int64.or (fst res) (Int64.not low_bits), Int64.and (snd res) low_bits)
+  else
+    res.
+
+Definition tnum_smod (a b: tnum): tnum :=
+  let (a_v, a_m) := a in
+  let (b_v, b_m) := b in
+  if Int64.eq b_m Int64.zero then
+    if Int64.eq b_v Int64.zero then
+      a (* BPF smod specification: x s% 0 = x *)
+    else if Int64.eq a_m Int64.zero then
+      (Int64.mods a_v b_v, Int64.zero)
+    else if Int64_is_pow2 b_v then
+      tnum_smod_pow2 a b
+    else
+      tnum_smod_high_bits a (mod_get_low_bits a b)
+  else if Int64.eq b_v Int64.zero then
+    tnum_unknown
+  else
+    tnum_smod_high_bits a (mod_get_low_bits a b).
+
 Definition tnum_intersect (a b: tnum): tnum :=
   let v   := Int64.or (fst a) (fst b) in 
   let mu  := Int64.and (snd a) (snd b) in
