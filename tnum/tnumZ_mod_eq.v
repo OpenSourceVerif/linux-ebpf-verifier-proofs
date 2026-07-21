@@ -173,6 +173,32 @@ Proof.
   - apply H.
 Qed.
 
+Lemma tnumZ_union_mod: forall a1 b1 a2 b2 k,
+  0 <= k ->
+  let m := (2 ^ k) in
+    mod_pair a1 m = mod_pair a2 m ->
+    mod_pair b1 m = mod_pair b2 m ->
+    mod_pair (tnum_union a1 b1) m
+  = mod_pair (tnum_union a2 b2) m.
+Proof.
+  intros a1 b1 a2 b2 k Hk m Heqa Heqb.
+  unfold mod_pair in *.
+  injection Heqa as Hav Ham.
+  injection Heqb as Hbv Hbm.
+  unfold tnum_union; simpl.
+  assert (Hmu:
+    Z.lor (Z.lxor (fst a1) (fst b1)) (Z.lor (snd a1) (snd b1)) mod m =
+    Z.lor (Z.lxor (fst a2) (fst b2)) (Z.lor (snd a2) (snd b2)) mod m).
+  { subst m. apply Z_lor_mod; auto.
+    - apply Z_lxor_mod; auto.
+    - apply Z_lor_mod; auto. }
+  f_equal.
+  - subst m. apply Z_land_mod; auto.
+    + apply Z_land_mod; auto.
+    + apply Z_lnot_mod; auto.
+  - exact Hmu.
+Qed.
+
 Lemma tnumZ_lshift1_mod: forall a1 a2 k,
   0 <= k ->
   let m := (2 ^ k) in
@@ -294,3 +320,60 @@ Proof.
   - unfold mod_pair. simpl.
     f_equal; apply Zmod_mod.
 Qed. 
+
+Lemma tnum_mul_rec_new_congr_mod : forall n a1 b1 f1 a2 b2 f2,
+  let m := 2 ^ 64 in
+    0 <= fst a1 < m ->
+    0 <= snd a1 < m ->
+    0 <= fst a2 < m ->
+    0 <= snd a2 < m ->
+    mod_pair a1 m = mod_pair a2 m ->
+    mod_pair b1 m = mod_pair b2 m ->
+    mod_pair f1 m = mod_pair f2 m ->
+    mod_pair (tnum_mul_rec_new n a1 b1 f1) m =
+    mod_pair (tnum_mul_rec_new n a2 b2 f2) m.
+Proof.
+  induction n as [|n IH];
+    intros a1 b1 f1 a2 b2 f2 m Ha1v Ha1m Ha2v Ha2m Heqa Heqb Heqf.
+  - simpl. exact Heqf.
+  - assert (Ha : a1 = a2).
+    { destruct a1 as [a1v a1m], a2 as [a2v a2m]; simpl in *.
+      injection Heqa as Hv Hm.
+      rewrite !Z.mod_small in Hv, Hm by lia.
+      subst. reflexivity. }
+    subst a2.
+    simpl.
+    destruct (negb ((fst a1 =? 0) && (snd a1 =? 0))); [|exact Heqf].
+    pose proof (tnum_rshift1_range (fst a1) 64 Ha1v) as Hav_shift.
+    pose proof (tnum_rshift1_range (snd a1) 64 Ha1m) as Ham_shift.
+    destruct (Z.land (fst a1) 1 =? 1).
+    + apply IH; auto.
+      * apply tnumZ_lshift1_mod; auto; lia.
+      * apply tnumZ_add_mod; auto; lia.
+    + destruct (Z.land (snd a1) 1 =? 1).
+      * apply IH; auto.
+        -- apply tnumZ_lshift1_mod; auto; lia.
+        -- apply tnumZ_union_mod; auto; try lia.
+           apply tnumZ_add_mod; auto; lia.
+      * apply IH; auto.
+        apply tnumZ_lshift1_mod; auto; lia.
+Qed.
+
+Lemma tnum_mul_rec_new_mod_eq : forall n a b f,
+  let m := 2 ^ 64 in
+    0 <= fst a < m ->
+    0 <= snd a < m ->
+    mod_pair (tnum_mul_rec_new n
+      (mod_pair a m) (mod_pair b m) (mod_pair f m)) m =
+    mod_pair (tnum_mul_rec_new n a b f) m.
+Proof.
+  intros n a b f m Hav Ham.
+  apply tnum_mul_rec_new_congr_mod.
+  - simpl. apply Z_mod_lt. lia.
+  - simpl. apply Z_mod_lt. lia.
+  - exact Hav.
+  - exact Ham.
+  - apply pair_mod_mod.
+  - apply pair_mod_mod.
+  - apply pair_mod_mod.
+Qed.

@@ -193,6 +193,38 @@ Qed.
 Definition tnum_num_bits (a: tnum): nat :=
   Nat.max (Z_size (fst a)) (Z_size (snd a)).
 
+(* Integer model of the new long-multiplication implementation.  The old
+   multiplication model below is kept temporarily so that its existing proof
+   library remains available while the new proof is migrated. *)
+Definition tnum_union (a b: tnum) : tnum :=
+  let v := Z.land (fst a) (fst b) in
+  let mu := Z.lor (Z.lxor (fst a) (fst b))
+                  (Z.lor (snd a) (snd b)) in
+    (Z.land v (Z.lnot mu), mu).
+
+Fixpoint tnum_mul_rec_new (fuel: nat) (a b acc: tnum): tnum :=
+  match fuel with
+  | O => acc
+  | S n =>
+      if negb (Z.eqb (fst a) 0 && Z.eqb (snd a) 0) then
+        let value_lsb := Z.eqb (Z.land (fst a) 1) 1 in
+        let mask_lsb := Z.eqb (Z.land (snd a) 1) 1 in
+        let acc' :=
+          if value_lsb then
+            tnum_add acc b
+          else if mask_lsb then
+            tnum_union acc (tnum_add acc b)
+          else
+            acc in
+        tnum_mul_rec_new n (tnum_rshift a 1) (tnum_lshift b 1) acc'
+      else
+        acc
+  end.
+
+Definition tnum_mul_new (a b: tnum): tnum :=
+  tnum_mul_rec_new 64 a b (0, 0).
+
+(* Old multiplication model and its auxiliary specification. *)
 Fixpoint tnum_mul_rec (fuel: nat) (a b f: tnum): tnum :=
   match fuel with
   | O => f
