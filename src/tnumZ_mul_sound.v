@@ -1,4 +1,4 @@
-From Coq Require Import List ZArith Lia.
+From Coq Require Import List ZArith Lia Btauto.
 From bpf.tnum Require Import Zmore tnumZ tnumZ_inv tnumZ_add_sound tnumZ_sub_sound tnumZ_shift_sound.
 Import ListNotations.
 
@@ -1254,4 +1254,164 @@ Lemma tnum_mul_sound : forall a b i j
 Proof.
   intros. rewrite (tnum_mul_equiv _ _ i); auto.
   apply tnum_mul_simple_sound; auto.
+Qed.
+
+(** Soundness of the union-based long multiplication. *)
+
+Lemma tnum_union_sound_new : forall a b x,
+  gamma a x \/ gamma b x -> gamma (tnum_union a b) x.
+Proof.
+  intros [av am] [bv bm] x Hx.
+  unfold gamma, tnum_union in *; simpl in *.
+  destruct Hx as [Hx | Hx].
+  - rewrite <- Hx.
+    apply Z.bits_inj; unfold Z.eqf; intros n.
+    assert (Hn : n < 0 \/ n >= 0) by lia.
+    destruct Hn as [Hn | Hn].
+    { destruct n; try lia; simpl; reflexivity. }
+    bits; try lia.
+    elim_testbit; reflexivity.
+  - rewrite <- Hx.
+    apply Z.bits_inj; unfold Z.eqf; intros n.
+    assert (Hn : n < 0 \/ n >= 0) by lia.
+    destruct Hn as [Hn | Hn].
+    { destruct n; try lia; simpl; reflexivity. }
+    bits; try lia.
+    elim_testbit; reflexivity.
+Qed.
+
+Lemma gamma_value_lsb_one : forall a x,
+  gamma a x -> Z.land (fst a) 1 = 1 -> Z.land x 1 = 1.
+Proof.
+  intros [av am] x Hgamma Hav.
+  unfold gamma in Hgamma; simpl in *.
+  pose proof (f_equal Z.odd Hgamma) as Hbit.
+  rewrite Zodd_land, Zodd_lnot in Hbit.
+  pose proof (f_equal Z.odd Hav) as Havbit.
+  rewrite Zodd_land in Havbit. simpl in Havbit.
+  assert (Hoddx : Z.odd x = true).
+  { destruct (Z.odd x), (Z.odd am), (Z.odd av);
+      simpl in *; try discriminate; reflexivity. }
+  destruct (Z_land_1_eq x) as [Hxl | Hxl]; [|exact Hxl].
+  exfalso.
+  pose proof (f_equal Z.odd Hxl) as Hcontra.
+  rewrite Zodd_land, Hoddx in Hcontra. simpl in Hcontra. discriminate.
+Qed.
+
+Lemma gamma_known_zero_lsb : forall a x,
+  gamma a x ->
+  Z.land (fst a) 1 <> 1 ->
+  Z.land (snd a) 1 <> 1 ->
+  Z.land x 1 = 0.
+Proof.
+  intros [av am] x Hgamma Hav Ham.
+  unfold gamma in Hgamma; simpl in *.
+  pose proof (Z_land_1_eq av) as Hav01.
+  pose proof (Z_land_1_eq am) as Ham01.
+  assert (Hav0 : Z.land av 1 = 0) by lia.
+  assert (Ham0 : Z.land am 1 = 0) by lia.
+  pose proof (f_equal Z.odd Hgamma) as Hbit.
+  pose proof (f_equal Z.odd Hav0) as Havbit.
+  pose proof (f_equal Z.odd Ham0) as Hambit.
+  rewrite Zodd_land, Zodd_lnot in Hbit.
+  rewrite !Zodd_land in Havbit, Hambit. simpl in Havbit, Hambit.
+  assert (Hoddx : Z.odd x = false).
+  { destruct (Z.odd x), (Z.odd am), (Z.odd av);
+      simpl in *; try discriminate; reflexivity. }
+  destruct (Z_land_1_eq x) as [Hxl | Hxl]; [exact Hxl|].
+  exfalso.
+  pose proof (f_equal Z.odd Hxl) as Hcontra.
+  rewrite Zodd_land, Hoddx in Hcontra. simpl in Hcontra. discriminate.
+Qed.
+
+Lemma mul_shift_step : forall x y,
+  0 <= x ->
+  x * y = Z.shiftr x 1 * Z.shiftl y 1 + Z.land x 1 * y.
+Proof.
+  intros x y Hx.
+  destruct x as [|p|p].
+  - simpl. lia.
+  - unfold Z.shiftr, Z.shiftl; simpl.
+    destruct p; destruct y; simpl; auto; lia.
+  - lia.
+Qed.
+
+Lemma tnum_mul_rec_new_sound : forall fuel a b acc x y z,
+  gamma a x ->
+  gamma b y ->
+  gamma acc z ->
+  0 <= x ->
+  Z.shiftr x (Z.of_nat fuel) = 0 ->
+  gamma (tnum_mul_rec_new fuel a b acc) (z + x * y).
+Proof.
+  induction fuel as [|fuel IH]; intros a b acc x y z Ha Hb Hacc Hx Hdone.
+  - rewrite Z.shiftr_0_r in Hdone. subst x.
+    rewrite Z.mul_0_l, Z.add_0_r. exact Hacc.
+  - unfold tnum_mul_rec_new; fold tnum_mul_rec_new.
+    destruct (negb (Z.eqb (fst a) 0 && Z.eqb (snd a) 0)) eqn:Hnz.
+    + assert (Ha_shift : gamma (tnum_rshift a 1) (Z.shiftr x 1))
+        by (apply tnum_rshift_sound; exact Ha).
+      assert (Hb_shift : gamma (tnum_lshift b 1) (Z.shiftl y 1))
+        by (apply tnum_lshift_sound; exact Hb).
+      assert (Hx_shift : 0 <= Z.shiftr x 1) by (apply Z.shiftr_nonneg; lia).
+      assert (Hdone_shift : Z.shiftr (Z.shiftr x 1) (Z.of_nat fuel) = 0).
+      { rewrite Z.shiftr_shiftr by lia.
+        replace (1 + Z.of_nat fuel) with (Z.of_nat (S fuel)) by lia.
+        exact Hdone. }
+      destruct (Z.eqb (Z.land (fst a) 1) 1) eqn:Hvalue.
+      * apply Z.eqb_eq in Hvalue.
+        assert (Hxl : Z.land x 1 = 1)
+          by (eapply gamma_value_lsb_one; eauto).
+        replace (z + x * y)
+          with ((z + y) + Z.shiftr x 1 * Z.shiftl y 1).
+        2:{ rewrite (mul_shift_step x y Hx), Hxl. lia. }
+        eapply IH with (x := Z.shiftr x 1) (y := Z.shiftl y 1)
+          (z := z + y); eauto.
+        apply tnum_add_sound; assumption.
+      * apply Z.eqb_neq in Hvalue.
+        destruct (Z.eqb (Z.land (snd a) 1) 1) eqn:Hmask.
+        -- apply Z.eqb_eq in Hmask.
+           destruct (Z_land_1_eq x) as [Hxl | Hxl].
+           ++ replace (z + x * y)
+                with (z + Z.shiftr x 1 * Z.shiftl y 1).
+              2:{ rewrite (mul_shift_step x y Hx), Hxl. lia. }
+              eapply IH with (x := Z.shiftr x 1) (y := Z.shiftl y 1)
+                (z := z); eauto.
+              apply tnum_union_sound_new. left. exact Hacc.
+           ++ replace (z + x * y)
+                with ((z + y) + Z.shiftr x 1 * Z.shiftl y 1).
+              2:{ rewrite (mul_shift_step x y Hx), Hxl. lia. }
+              eapply IH with (x := Z.shiftr x 1) (y := Z.shiftl y 1)
+                (z := z + y); eauto.
+              apply tnum_union_sound_new. right.
+              apply tnum_add_sound; assumption.
+        -- apply Z.eqb_neq in Hmask.
+           assert (Hxl : Z.land x 1 = 0)
+             by (eapply gamma_known_zero_lsb; eauto).
+           replace (z + x * y)
+             with (z + Z.shiftr x 1 * Z.shiftl y 1).
+           2:{ rewrite (mul_shift_step x y Hx), Hxl. lia. }
+           eapply IH with (x := Z.shiftr x 1) (y := Z.shiftl y 1)
+             (z := z); eauto.
+    + apply Bool.negb_false_iff in Hnz.
+      apply Bool.andb_true_iff in Hnz as [Hav Ham].
+      apply Z.eqb_eq in Hav. apply Z.eqb_eq in Ham.
+      destruct a as [av am]; simpl in *; subst av am.
+      unfold gamma in Ha; simpl in Ha.
+      rewrite Z.land_m1_r in Ha. subst x.
+      rewrite Z.mul_0_l, Z.add_0_r. exact Hacc.
+Qed.
+
+Theorem tnum_mul_new_sound : forall a b x y,
+  gamma a x -> gamma b y -> 0 <= x < 2 ^ 64 ->
+  gamma (tnum_mul_new a b) (x * y).
+Proof.
+  intros a b x y Ha Hb Hx.
+  unfold tnum_mul_new.
+  replace (x * y) with (0 + x * y) by lia.
+  eapply tnum_mul_rec_new_sound; eauto.
+  - unfold gamma; simpl. reflexivity.
+  - lia.
+  - rewrite Z.shiftr_div_pow2 by lia.
+    apply Z.div_small; lia.
 Qed.

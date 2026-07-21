@@ -89,6 +89,22 @@ Definition tnum_xor (a b: tnum): tnum :=
 Definition tnum_neg (a : tnum): tnum :=
   tnum_sub (Int64.zero, Int64.zero) a.
 
+Definition tnum_union (a b: tnum) : tnum :=
+  let (a_v, a_m) := a in
+  let (b_v, b_m) := b in
+  let v := Int64.and a_v b_v in
+  let mu := Int64.or (Int64.xor a_v b_v) (Int64.or a_m b_m) in
+    (Int64.and v (Int64.not mu), mu).
+
+Definition tnum_union_opt (oa ob: option tnum) : option tnum :=
+  match oa, ob with
+  | None, ob => ob
+  | oa, None => oa
+  | Some a, Some b => Some (tnum_union a b)
+  end.
+
+(* Old multiplication implementation. *)
+(*
 Fixpoint tnum_mul_rec_early_ret (fuel: nat) (a b acc_m: tnum) : tnum :=
   match fuel with
   | O => acc_m
@@ -121,6 +137,40 @@ Definition tnum_mul (a b: tnum) (width: nat): tnum :=
   let acc_v := (Int64.mul (fst a) (fst b), Int64.zero) in
   let acc_m := tnum_mul_rec width a b (Int64.zero, Int64.zero) in
     tnum_add acc_v acc_m.
+*)
+
+(* Long multiplication, corresponding to the implementation in tnum.c.
+   At each step the least significant bit of [a] is handled as follows:
+   - known 0: keep the accumulator;
+   - known 1: add [b];
+   - unknown: join the known-0 and known-1 cases.
+   [fuel] bounds the structurally recursive Coq implementation; callers should
+   supply 64 iterations to obtain the complete u64 multiplication. *)
+Fixpoint tnum_mul_rec (fuel: nat) (a b acc: tnum) : tnum :=
+  match fuel with
+  | O => acc
+  | S n =>
+      if orb (negb (Int64.eq (fst a) Int64.zero))
+             (negb (Int64.eq (snd a) Int64.zero)) then
+        let value_lsb := Int64.eq (Int64.and (fst a) Int64.one) Int64.one in
+        let mask_lsb := Int64.eq (Int64.and (snd a) Int64.one) Int64.one in
+        let acc' :=
+          if value_lsb then
+            tnum_add acc b
+          else if mask_lsb then
+            tnum_union acc (tnum_add acc b)
+          else
+            acc in
+        tnum_mul_rec n
+          (tnum_rshift a Int64.one)
+          (tnum_lshift b Int64.one)
+          acc'
+      else
+        acc
+  end.
+
+Definition tnum_mul (a b: tnum): tnum :=
+  tnum_mul_rec 64 a b (Int64.zero, Int64.zero).
 
 Definition Int64_size (x: u64) : Z :=
   Z_size_Z (Int64.unsigned x).
@@ -146,20 +196,6 @@ Definition tnum_udiv (a b: tnum): tnum :=
     (Int64.zero, Int64.mone) (* -1 represents unsigned_max *)
   else let max_res := Int64.divu (Int64.add (fst a) (snd a)) (fst b) in
     (Int64.zero, Int64_ones (Int64_size max_res)).
-
-Definition tnum_union (a b: tnum) : tnum :=
-  let (a_v, a_m) := a in
-  let (b_v, b_m) := b in
-  let v := Int64.and a_v b_v in
-  let mu := Int64.or (Int64.xor a_v b_v) (Int64.or a_m b_m) in
-    (Int64.and v (Int64.not mu), mu).
-
-Definition tnum_union_opt (oa ob: option tnum) : option tnum :=
-  match oa, ob with
-  | None, ob => ob
-  | oa, None => oa
-  | Some a, Some b => Some (tnum_union a b)
-  end.
 
 Definition Int64_min_signed := Int64.repr Int64.min_signed.
 

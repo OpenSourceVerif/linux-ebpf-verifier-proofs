@@ -1,4 +1,4 @@
-From Coq Require Import List ZArith Lia Bool.
+From Coq Require Import List ZArith Lia Bool Btauto.
 From compcert Require Import Integers Values.
 From bpf.ebpf Require Import ebpfBinSem.
 
@@ -412,6 +412,31 @@ Proof.
   apply H0. apply H.
 Qed.
 
+Lemma tnum_union_eq : forall a b,
+    tnum_union a b =
+      of_tnumZ (tnumZ.tnum_union (to_tnumZ a) (to_tnumZ b)).
+Proof.
+  intros [a_v a_m] [b_v b_m].
+  unfold tnum_union, tnumZ.tnum_union, to_tnumZ, of_tnumZ.
+  simpl.
+  f_equal; apply Int64.same_bits_eq; intros n Hn;
+    rewrite Int64.testbit_repr by auto;
+    repeat rewrite Int64.bits_and by auto;
+    repeat rewrite Int64.bits_not by auto;
+    repeat rewrite Int64.bits_or by auto;
+    repeat rewrite Int64.bits_xor by auto;
+    repeat rewrite Z.land_spec;
+    repeat rewrite Z.lnot_spec by lia;
+    repeat rewrite Z.lor_spec;
+    repeat rewrite Z.lxor_spec;
+    reflexivity.
+Qed.
+
+(*
+  Old multiplication correspondence proof.  It splits the concrete value and
+  uncertainty into separate accumulators, so it does not state the invariant
+  used by the new union-based long multiplication.
+
 Lemma tnum_mul_rec_eq : forall n a b acc_m,
     0 <= Z.of_nat n <= 64 ->
     tnum_mul_rec n a b acc_m =
@@ -551,6 +576,114 @@ Proof.
   rewrite H0; clear H0.
   rewrite tnumZ_tnum_id_eq.
   f_equal; apply Int64_repr_mod; apply Hmod_eq1 + apply Hmod_eq2.
+Qed.
+*)
+
+Lemma of_tnumZ_mod_eq : forall x y,
+    mod_pair x Int64.modulus = mod_pair y Int64.modulus ->
+    of_tnumZ x = of_tnumZ y.
+Proof.
+  intros [xv xm] [yv ym] Hmod.
+  unfold mod_pair in Hmod; simpl in Hmod.
+  injection Hmod as Hv Hm.
+  unfold of_tnumZ; simpl. f_equal; apply Int64_repr_mod; assumption.
+Qed.
+
+Lemma Int64_eq_zero_eqb : forall x,
+    Int64.eq x Int64.zero = Z.eqb (Int64.unsigned x) 0.
+Proof.
+  intros x. unfold Int64.eq. rewrite Int64.unsigned_zero.
+  destruct (Z.eqb_spec (Int64.unsigned x) 0) as [Heq | Hneq].
+  - rewrite Heq. reflexivity.
+  - destruct (Coqlib.zeq (Int64.unsigned x) 0); congruence.
+Qed.
+
+Lemma Int64_lsb_eqb : forall x,
+    Int64.eq (Int64.and x Int64.one) Int64.one =
+      Z.eqb (Z.land (Int64.unsigned x) 1) 1.
+Proof.
+  intros x. unfold Int64.eq. rewrite <- Zland_and.
+  rewrite Int64.unsigned_one.
+  destruct (Z.eqb_spec (Z.land (Int64.unsigned x) 1) 1) as [Heq | Hneq].
+  - rewrite Heq. reflexivity.
+  - destruct (Coqlib.zeq (Z.land (Int64.unsigned x) 1) 1); congruence.
+Qed.
+
+Lemma Int64_unsigned_shiftr1_range : forall x,
+    0 <= Z.shiftr (Int64.unsigned x) 1 < Int64.modulus.
+Proof.
+  intros x. change (0 <= Z.shiftr (Int64.unsigned x) 1 < 2 ^ 64).
+  apply tnum_rshift1_range. apply Int64.unsigned_range.
+Qed.
+
+Lemma tnum_mul_rec_eq : forall fuel a b acc,
+    (fuel <= 64)%nat ->
+    tnum_mul_rec fuel a b acc =
+      of_tnumZ
+        (tnumZ.tnum_mul_rec_new fuel
+          (to_tnumZ a) (to_tnumZ b) (to_tnumZ acc)).
+Proof.
+  intros fuel; induction fuel as [| fuel IH]; intros a b acc Hfuel.
+  - simpl. rewrite tnum_tnumZ_id. reflexivity.
+  - unfold tnum_mul_rec; fold tnum_mul_rec.
+    unfold tnumZ.tnum_mul_rec_new; fold tnumZ.tnum_mul_rec_new.
+    change (fst (to_tnumZ a)) with (Int64.unsigned (fst a)).
+    change (snd (to_tnumZ a)) with (Int64.unsigned (snd a)).
+    rewrite !Int64_eq_zero_eqb.
+    replace (negb (Int64.unsigned (fst a) =? 0) ||
+             negb (Int64.unsigned (snd a) =? 0))%bool
+      with (negb ((Int64.unsigned (fst a) =? 0) &&
+                  (Int64.unsigned (snd a) =? 0)))%bool by btauto.
+    destruct (negb ((Int64.unsigned (fst a) =? 0) &&
+                    (Int64.unsigned (snd a) =? 0))) eqn:Hnonzero.
+    2:{ symmetry. apply tnum_tnumZ_id. }
+    rewrite !Int64_lsb_eqb.
+    destruct (Z.land (Int64.unsigned (fst a)) 1 =? 1) eqn:Hvalue.
+    + rewrite tnum_add_eq.
+      rewrite IH by lia.
+      rewrite tnum_shiftl_eq, tnum_shiftr_eq, !tnumZ_tnum_id_eq.
+      apply of_tnumZ_mod_eq.
+      apply tnum_mul_rec_new_mod_eq;
+        unfold to_tnumZ; simpl; apply Int64_unsigned_shiftr1_range.
+    + destruct (Z.land (Int64.unsigned (snd a)) 1 =? 1) eqn:Hmask.
+      * rewrite tnum_union_eq, tnum_add_eq.
+        rewrite IH by lia.
+        rewrite tnum_shiftl_eq, tnum_shiftr_eq, !tnumZ_tnum_id_eq.
+        apply of_tnumZ_mod_eq.
+        apply tnum_mul_rec_new_congr_mod.
+        -- simpl. apply Z.mod_pos_bound. lia.
+        -- simpl. apply Z.mod_pos_bound. lia.
+        -- unfold to_tnumZ; simpl. apply Int64_unsigned_shiftr1_range.
+        -- unfold to_tnumZ; simpl. apply Int64_unsigned_shiftr1_range.
+        -- apply pair_mod_mod.
+        -- apply pair_mod_mod.
+        -- rewrite pair_mod_mod.
+           apply tnumZ_union_mod; try lia.
+           ++ reflexivity.
+           ++ apply pair_mod_mod.
+      * rewrite IH by lia.
+        rewrite tnum_shiftl_eq, tnum_shiftr_eq, !tnumZ_tnum_id_eq.
+        assert (Haccmod : to_tnumZ acc =
+          mod_pair (to_tnumZ acc) Int64.modulus).
+        { unfold to_tnumZ, mod_pair; simpl. f_equal.
+          - rewrite Z.mod_small.
+            + reflexivity.
+            + apply Int64.unsigned_range.
+          - rewrite Z.mod_small.
+            + reflexivity.
+            + apply Int64.unsigned_range. }
+        rewrite Haccmod at 1.
+        apply of_tnumZ_mod_eq.
+        apply tnum_mul_rec_new_mod_eq;
+          unfold to_tnumZ; simpl; apply Int64_unsigned_shiftr1_range.
+Qed.
+
+Lemma tnum_mul_eq : forall a b,
+    tnum_mul a b =
+      of_tnumZ (tnumZ.tnum_mul_new (to_tnumZ a) (to_tnumZ b)).
+Proof.
+  intros a b. unfold tnum_mul, tnumZ.tnum_mul_new.
+  apply tnum_mul_rec_eq. lia.
 Qed.
 
 Lemma Int64_unsigned_add_nonneg : forall (x y : int64),
@@ -934,6 +1067,7 @@ Proof.
   auto.
 Qed.
 
+(* Old multiplication soundness theorem; retained during migration.
 Theorem tnum_mul_sound :
   forall a b i j
          (GEA : tnum_ge_inv (to_tnumZ a))
@@ -952,6 +1086,36 @@ Proof.
     rewrite Z_size_equiv.
     apply Z_size_range_Int64.
     apply Int64.unsigned_range_2.
+Qed.
+*)
+
+Theorem tnum_mul_sound :
+  forall a b i j
+         (MEMA : mem_tnum i a)
+         (MEMB : mem_tnum j b),
+    mem_tnum (Int64.mul i j) (tnum_mul a b).
+Proof.
+  intros a b i j MEMA MEMB.
+  pose proof (mem_tnum_gamma i a MEMA) as Hga.
+  pose proof (mem_tnum_gamma j b MEMB) as Hgb.
+  pose proof (tnumZ_mul_sound.tnum_mul_new_sound
+    (to_tnumZ a) (to_tnumZ b)
+    (Int64.unsigned i) (Int64.unsigned j)
+    Hga Hgb (Int64.unsigned_range i)) as Hsound.
+  rewrite tnum_mul_eq.
+  destruct (tnumZ.tnum_mul_new (to_tnumZ a) (to_tnumZ b))
+    as [rv rm] eqn:Hmul in Hsound |- *.
+  unfold gamma in Hsound; simpl in Hsound.
+  unfold mem_tnum, of_tnumZ; simpl.
+  apply Int64.same_bits_eq.
+  intros n Hn.
+  rewrite Int64.bits_and by auto.
+  rewrite Int64.bits_not by auto.
+  rewrite !Int64.testbit_repr by auto.
+  rewrite testbit_mul by auto.
+  rewrite <- Hsound.
+  rewrite Z.land_spec, Z.lnot_spec by lia.
+  reflexivity.
 Qed.
 
 Theorem tnum_binary_sound_ge_0 :
