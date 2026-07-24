@@ -1,7 +1,7 @@
 From Coq Require Import List ZArith Bool.
 From compcert.lib Require Import Integers.
 Import ListNotations.
-From bpf.semantics Require Import ebpfSyntax.
+From bpf.semantics Require Import ebpfSyntax ebpfBinSem.
 From bpf.tnum Require Import tnumZ.
 
 Definition u8 := byte.
@@ -95,6 +95,35 @@ Definition tnum_sign_ext (nbits : Z) (a : tnum) : tnum :=
 
 Definition tnum_movsx (c : signExtOp) (a : tnum) : tnum :=
   tnum_sign_ext (signExtOp2Z c) a.
+
+(** END either truncates to the selected width or permutes its bytes.
+    Applying the same bit transformation to value and mask is exact. *)
+Definition tnum_zero_ext (nbits : Z) (a : tnum) : tnum :=
+  (Int64.zero_ext nbits (fst a),
+   Int64.zero_ext nbits (snd a)).
+
+Definition tnum_end_trunc (s : endSize) (a : tnum) : tnum :=
+  match s with
+  | S16 => tnum_zero_ext 16 a
+  | S32 => tnum_zero_ext 32 a
+  | S64 => a
+  end.
+
+Definition tnum_bswap (s : endSize) (a : tnum) : tnum :=
+  (swapn s (fst a), swapn s (snd a)).
+
+Definition tnum_end (e : endOp) (s : endSize) (a : tnum) : tnum :=
+  match e with
+  | LE32 =>
+      if Archi.big_endian
+      then tnum_bswap s a
+      else tnum_end_trunc s a
+  | BE32 =>
+      if Archi.big_endian
+      then tnum_end_trunc s a
+      else tnum_bswap s a
+  | LE64 => tnum_bswap s a
+  end.
 
 Definition tnum_neg (a : tnum): tnum :=
   tnum_sub (Int64.zero, Int64.zero) a.

@@ -1187,6 +1187,294 @@ Proof.
   simpl. apply tnum_movsx_mem_sound. exact Hsrc.
 Qed.
 
+Theorem tnum_zero_ext_mem_sound :
+  forall n a i,
+    mem_tnum i a ->
+    mem_tnum
+      (Int64.zero_ext n i)
+      (tnum_zero_ext n a).
+Proof.
+  intros n [av am] i Hmem.
+  unfold mem_tnum, tnum_zero_ext in *; simpl in *.
+  apply Int64.same_bits_eq; intros bit Hbit.
+  rewrite Int64.bits_and, Int64.bits_not, !Int64.bits_zero_ext by lia.
+  destruct (Coqlib.zlt bit n); simpl; try reflexivity.
+  pose proof (mem_tnum_bit i (av, am) bit Hmem Hbit) as Hmem_bit.
+  simpl in Hmem_bit. exact Hmem_bit.
+Qed.
+
+Theorem tnum_end_trunc_mem_sound :
+  forall s a i,
+    mem_tnum i a ->
+    mem_tnum
+      (eval_end_trunction s i)
+      (tnum_end_trunc s a).
+Proof.
+  intros s a i Hmem.
+  destruct s; simpl.
+  - apply tnum_zero_ext_mem_sound. exact Hmem.
+  - apply tnum_zero_ext_mem_sound. exact Hmem.
+  - exact Hmem.
+Qed.
+
+(** Output-to-input bit maps for the three byte-swap widths. *)
+Definition swab16_index (bit : Z) : option Z :=
+  if Coqlib.zlt bit 8 then Some (bit + 8)
+  else if Coqlib.zlt bit 16 then Some (bit - 8)
+  else None.
+
+Definition swab32_index (bit : Z) : option Z :=
+  if Coqlib.zlt bit 8 then Some (bit + 24)
+  else if Coqlib.zlt bit 16 then Some (bit + 8)
+  else if Coqlib.zlt bit 24 then Some (bit - 8)
+  else if Coqlib.zlt bit 32 then Some (bit - 24)
+  else None.
+
+Definition swab64_index (bit : Z) : option Z :=
+  if Coqlib.zlt bit 8 then Some (bit + 56)
+  else if Coqlib.zlt bit 16 then Some (bit + 40)
+  else if Coqlib.zlt bit 24 then Some (bit + 24)
+  else if Coqlib.zlt bit 32 then Some (bit + 8)
+  else if Coqlib.zlt bit 40 then Some (bit - 8)
+  else if Coqlib.zlt bit 48 then Some (bit - 24)
+  else if Coqlib.zlt bit 56 then Some (bit - 40)
+  else Some (bit - 56).
+
+Lemma mem_tnum_reindex_sound :
+  forall (f : int64 -> int64) (index : Z -> option Z) a i,
+    mem_tnum i a ->
+    (forall x bit,
+      0 <= bit < Int64.zwordsize ->
+      Int64.testbit (f x) bit =
+        match index bit with
+        | Some source => Int64.testbit x source
+        | None => false
+        end) ->
+    (forall bit source,
+      0 <= bit < Int64.zwordsize ->
+      index bit = Some source ->
+      0 <= source < Int64.zwordsize) ->
+    mem_tnum (f i) (f (fst a), f (snd a)).
+Proof.
+  intros f index [av am] i Hmem Hmap Hrange.
+  unfold mem_tnum in *; simpl in *.
+  apply Int64.same_bits_eq; intros bit Hbit.
+  rewrite Int64.bits_and, Int64.bits_not by lia.
+  rewrite !Hmap by exact Hbit.
+  destruct (index bit) as [source |] eqn:Hindex; simpl.
+  - pose proof
+      (mem_tnum_bit i (av, am) source Hmem
+        (Hrange bit source Hbit Hindex)) as Hmem_bit.
+    simpl in Hmem_bit. exact Hmem_bit.
+  - reflexivity.
+Qed.
+
+Lemma swab16_index_range :
+  forall bit source,
+    0 <= bit < Int64.zwordsize ->
+    swab16_index bit = Some source ->
+    0 <= source < Int64.zwordsize.
+Proof.
+  intros bit source Hbit Hsource.
+  unfold swab16_index in Hsource.
+  repeat
+    match goal with
+    | H : context [Coqlib.zlt ?x ?y] |- _ =>
+        destruct (Coqlib.zlt x y); simpl in H
+    end;
+    try discriminate.
+  all: inversion Hsource; subst source;
+    change Int64.zwordsize with 64 in *; lia.
+Qed.
+
+Lemma swab32_index_range :
+  forall bit source,
+    0 <= bit < Int64.zwordsize ->
+    swab32_index bit = Some source ->
+    0 <= source < Int64.zwordsize.
+Proof.
+  intros bit source Hbit Hsource.
+  unfold swab32_index in Hsource.
+  repeat
+    match goal with
+    | H : context [Coqlib.zlt ?x ?y] |- _ =>
+        destruct (Coqlib.zlt x y); simpl in H
+    end;
+    try discriminate.
+  all: inversion Hsource; subst source;
+    change Int64.zwordsize with 64 in *; lia.
+Qed.
+
+Lemma swab64_index_range :
+  forall bit source,
+    0 <= bit < Int64.zwordsize ->
+    swab64_index bit = Some source ->
+    0 <= source < Int64.zwordsize.
+Proof.
+  intros bit source Hbit Hsource.
+  unfold swab64_index in Hsource.
+  repeat
+    match goal with
+    | H : context [Coqlib.zlt ?x ?y] |- _ =>
+        destruct (Coqlib.zlt x y); simpl in H
+    end.
+  all: inversion Hsource; subst source;
+    change Int64.zwordsize with 64 in *; lia.
+Qed.
+
+Lemma swab16_testbit :
+  forall x bit,
+    0 <= bit < Int64.zwordsize ->
+    Int64.testbit (swab16 x) bit =
+      match swab16_index bit with
+      | Some source => Int64.testbit x source
+      | None => false
+      end.
+Proof.
+  intros x bit Hbit.
+  unfold swab16, swab16_index.
+  rewrite Int64.bits_bitfield_insert by
+    (change Int64.zwordsize with 64 in Hbit |- *; lia).
+  repeat
+    match goal with
+    | |- context [Coqlib.zlt ?x ?y] =>
+        destruct (Coqlib.zlt x y); simpl
+    | |- context [Coqlib.zle ?x ?y] =>
+        destruct (Coqlib.zle x y); simpl
+    end.
+  all: repeat
+    (rewrite Int64.bits_unsigned_bitfield_extract by
+      (change Int64.zwordsize with 64 in Hbit |- *; lia)).
+  all: repeat
+    match goal with
+    | |- context [Coqlib.zlt ?x ?y] =>
+        destruct (Coqlib.zlt x y); simpl
+    end.
+  all: change Int64.zwordsize with 64 in Hbit.
+  all: try reflexivity; try (f_equal; lia); exfalso; lia.
+Qed.
+
+Lemma swab32_testbit :
+  forall x bit,
+    0 <= bit < Int64.zwordsize ->
+    Int64.testbit (swab32 x) bit =
+      match swab32_index bit with
+      | Some source => Int64.testbit x source
+      | None => false
+      end.
+Proof.
+  intros x bit Hbit.
+  unfold swab32, swab32_index.
+  repeat
+    (rewrite Int64.bits_bitfield_insert by
+      (change Int64.zwordsize with 64 in Hbit |- *; lia)).
+  assert
+    (bit < 8 \/ 8 <= bit < 16 \/ 16 <= bit < 24 \/
+     24 <= bit < 32 \/ 32 <= bit) as Hregion by lia.
+  destruct Hregion as [Hregion | [Hregion | [Hregion |
+    [Hregion | Hregion]]]].
+  all: repeat
+    match goal with
+    | |- context [Coqlib.proj_sumbool (Coqlib.zlt ?x ?y)] =>
+        destruct (Coqlib.zlt x y); simpl; try lia
+    | |- context [Coqlib.proj_sumbool (Coqlib.zle ?x ?y)] =>
+        destruct (Coqlib.zle x y); simpl; try lia
+    | |- context [Coqlib.zlt ?x ?y] =>
+        destruct (Coqlib.zlt x y); simpl; try lia
+    end.
+  all: repeat
+    (rewrite Int64.bits_unsigned_bitfield_extract by
+      (change Int64.zwordsize with 64 in Hbit |- *; lia)).
+  all: repeat
+    match goal with
+    | |- context [Coqlib.zlt ?x ?y] =>
+        destruct (Coqlib.zlt x y); simpl; try lia
+    end.
+  all: try reflexivity; try (f_equal; lia);
+    exfalso; change Int64.zwordsize with 64 in Hbit; lia.
+Qed.
+
+Lemma swab64_testbit :
+  forall x bit,
+    0 <= bit < Int64.zwordsize ->
+    Int64.testbit (swab64 x) bit =
+      match swab64_index bit with
+      | Some source => Int64.testbit x source
+      | None => false
+      end.
+Proof.
+  intros x bit Hbit.
+  unfold swab64, swab64_index.
+  repeat
+    (rewrite Int64.bits_bitfield_insert by
+      (change Int64.zwordsize with 64 in Hbit |- *; lia)).
+  change Int64.zwordsize with 64 in Hbit.
+  assert
+    (bit < 8 \/ 8 <= bit < 16 \/ 16 <= bit < 24 \/
+     24 <= bit < 32 \/ 32 <= bit < 40 \/ 40 <= bit < 48 \/
+     48 <= bit < 56 \/ 56 <= bit) as Hregion by lia.
+  destruct Hregion as [Hregion | [Hregion | [Hregion |
+    [Hregion | [Hregion | [Hregion | [Hregion | Hregion]]]]]]].
+  all: repeat
+    match goal with
+    | |- context [Coqlib.proj_sumbool (Coqlib.zlt ?x ?y)] =>
+        destruct (Coqlib.zlt x y); simpl; try lia
+    | |- context [Coqlib.proj_sumbool (Coqlib.zle ?x ?y)] =>
+        destruct (Coqlib.zle x y); simpl; try lia
+    | |- context [Coqlib.zlt ?x ?y] =>
+        destruct (Coqlib.zlt x y); simpl; try lia
+    end.
+  all: repeat
+    (rewrite Int64.bits_unsigned_bitfield_extract by
+      (change Int64.zwordsize with 64 in Hbit |- *; lia)).
+  all: repeat
+    match goal with
+    | |- context [Coqlib.zlt ?x ?y] =>
+        destruct (Coqlib.zlt x y); simpl; try lia
+    end.
+  all: try reflexivity; try (f_equal; lia);
+    exfalso; lia.
+Qed.
+
+Theorem tnum_bswap_mem_sound :
+  forall s a i,
+    mem_tnum i a ->
+    mem_tnum (swapn s i) (tnum_bswap s a).
+Proof.
+  intros s a i Hmem.
+  destruct s; unfold tnum_bswap, swapn; simpl.
+  - eapply mem_tnum_reindex_sound
+      with (index := swab16_index); eauto.
+    + apply swab16_testbit.
+    + apply swab16_index_range.
+  - eapply mem_tnum_reindex_sound
+      with (index := swab32_index); eauto.
+    + apply swab32_testbit.
+    + apply swab32_index_range.
+  - eapply mem_tnum_reindex_sound
+      with (index := swab64_index); eauto.
+    + apply swab64_testbit.
+    + apply swab64_index_range.
+Qed.
+
+Theorem tnum_end_sound :
+  forall e s a dst,
+    gamma_val dst a ->
+    gamma_val (eval_end e s dst) (tnum_end e s a).
+Proof.
+  intros e s a dst Hdst.
+  destruct dst; simpl in Hdst; try contradiction.
+  unfold eval_end, tnum_end.
+  destruct e; simpl.
+  - destruct Archi.big_endian.
+    + apply tnum_bswap_mem_sound. exact Hdst.
+    + apply tnum_end_trunc_mem_sound. exact Hdst.
+  - destruct Archi.big_endian.
+    + apply tnum_end_trunc_mem_sound. exact Hdst.
+    + apply tnum_bswap_mem_sound. exact Hdst.
+  - apply tnum_bswap_mem_sound. exact Hdst.
+Qed.
+
 (** Public, value-level interfaces for bitwise operations. *)
 Theorem tnum_and_sound :
   forall a b dst src,
