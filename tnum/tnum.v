@@ -1,6 +1,7 @@
 From Coq Require Import List ZArith Bool.
 From compcert.lib Require Import Integers.
 Import ListNotations.
+From bpf.semantics Require Import ebpfSyntax.
 From bpf.tnum Require Import tnumZ.
 
 Definition u8 := byte.
@@ -85,6 +86,15 @@ Definition tnum_xor (a b: tnum): tnum :=
   let v   := Int64.xor (fst a) (fst b) in
   let mu  := Int64.or (snd a) (snd b) in
     (Int64.and v (Int64.not mu), mu).
+
+(** Sign extension copies the same source bit into the concrete value,
+    the known-value component, and the unknown-mask component. *)
+Definition tnum_sign_ext (nbits : Z) (a : tnum) : tnum :=
+  (Int64.sign_ext nbits (fst a),
+   Int64.sign_ext nbits (snd a)).
+
+Definition tnum_movsx (c : signExtOp) (a : tnum) : tnum :=
+  tnum_sign_ext (signExtOp2Z c) a.
 
 Definition tnum_neg (a : tnum): tnum :=
   tnum_sub (Int64.zero, Int64.zero) a.

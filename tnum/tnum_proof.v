@@ -1,6 +1,6 @@
 From Coq Require Import List ZArith Lia Bool Btauto.
 From compcert Require Import Integers Values.
-From bpf.semantics Require Import ebpfBinSem.
+From bpf.semantics Require Import ebpfSyntax ebpfBinSem.
 
 From bpf.tnum Require Import tnumZ tnumZ_inv tnumZ_add_sound tnumZ_sub_sound tnumZ_mul_sound tnumZ_udiv_sound tnumZ_umod_sound tnumZ_shift_sound tnumZ_mod_eq.
 From bpf.tnum Require Import tnum.
@@ -1137,6 +1137,54 @@ Proof.
   - pose proof (Int64.unsigned_range shift).
     lia.
   - change Int64.zwordsize with 64. lia.
+Qed.
+
+(** Sign/zero extension are bit reindexing operations, so applying the
+    same operation to the value and mask components is sound. *)
+Theorem tnum_sign_ext_mem_sound :
+  forall n a i,
+    0 < n <= Int64.zwordsize ->
+    mem_tnum i a ->
+    mem_tnum
+      (Int64.sign_ext n i)
+      (tnum_sign_ext n a).
+Proof.
+  intros n [av am] i Hn Hmem.
+  unfold mem_tnum, tnum_sign_ext in *; simpl in *.
+  apply Int64.same_bits_eq; intros bit Hbit.
+  rewrite Int64.bits_and, Int64.bits_not, !Int64.bits_sign_ext by lia.
+  pose proof
+    (mem_tnum_bit i (av, am)
+      (if Coqlib.zlt bit n then bit else n - 1)
+      Hmem) as Hmem_bit.
+  simpl in Hmem_bit. apply Hmem_bit.
+  destruct (Coqlib.zlt bit n); lia.
+Qed.
+
+Theorem tnum_movsx_mem_sound :
+  forall c a i,
+    mem_tnum i a ->
+    mem_tnum
+      (Int64.sign_ext (signExtOp2Z c) i)
+      (tnum_movsx c a).
+Proof.
+  intros c a i Hmem.
+  unfold tnum_movsx.
+  apply tnum_sign_ext_mem_sound; auto.
+  change Int64.zwordsize with 64.
+  destruct c; simpl; lia.
+Qed.
+
+Theorem tnum_movsx_sound :
+  forall c a src,
+    gamma_val src a ->
+    gamma_val
+      (eval_movsx W64 c src)
+      (tnum_movsx c a).
+Proof.
+  intros c a src Hsrc.
+  destruct src; simpl in Hsrc; try contradiction.
+  simpl. apply tnum_movsx_mem_sound. exact Hsrc.
 Qed.
 
 (** Public, value-level interfaces for bitwise operations. *)
