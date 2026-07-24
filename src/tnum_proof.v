@@ -993,25 +993,36 @@ Proof.
   auto.
 Qed.
 
-Theorem tnum_add_sound :
-  forall dst_v v dst_t t
-    (H_dst: gamma_val dst_v dst_t)
-    (H_src: gamma_val v t),
-  gamma_val (Val.addl dst_v v) (tnum_add dst_t t).
+Theorem tnum_add_mem_sound :
+  forall a b i j,
+    mem_tnum i a ->
+    mem_tnum j b ->
+    mem_tnum (Int64.add i j) (tnum_add a b).
 Proof.
   intros.
-  destruct dst_v; simpl in H_dst; try contradiction.
-  destruct v; simpl in H_src; try contradiction.
-  simpl.
-  apply tnum_binary_sound with (tnum_fz := tnumZ.tnum_add) (fz:= Z.add); auto.
+  apply tnum_binary_sound
+    with (tnum_fz := tnumZ.tnum_add) (fz := Z.add); auto.
   - intros.
     apply tnumZ_add_sound.tnum_add_sound; auto.
   - intros.
-    apply testbit_add ; auto.
+    apply testbit_add; auto.
   - apply tnum_add_eq.
 Qed.
 
-Theorem tnum_sub_sound :
+Theorem tnum_add_sound :
+  forall a b dst src,
+    gamma_val dst a ->
+    gamma_val src b ->
+    gamma_val (Val.addl dst src) (tnum_add a b).
+Proof.
+  intros a b dst src Hdst Hsrc.
+  destruct dst; simpl in Hdst; try contradiction.
+  destruct src; simpl in Hsrc; try contradiction.
+  simpl.
+  apply tnum_add_mem_sound; assumption.
+Qed.
+
+Theorem tnum_sub_mem_sound :
   forall a b i j
          (MEMA : mem_tnum i a)
          (MEMB : mem_tnum j b),
@@ -1024,6 +1035,18 @@ Proof.
   - intros.
     apply testbit_sub ; auto.
   - apply tnum_sub_eq.
+Qed.
+
+Theorem tnum_sub_sound :
+  forall a b dst src,
+    gamma_val dst a ->
+    gamma_val src b ->
+    gamma_val (Val.subl dst src) (tnum_sub a b).
+Proof.
+  intros a b dst src Hdst Hsrc.
+  destruct dst; simpl in Hdst; try contradiction.
+  destruct src; simpl in Hsrc; try contradiction.
+  simpl. apply tnum_sub_mem_sound; assumption.
 Qed.
 
 Theorem tnum_binary_sound_ge_0_width :
@@ -1089,7 +1112,7 @@ Proof.
 Qed.
 *)
 
-Theorem tnum_mul_sound :
+Theorem tnum_mul_mem_sound :
   forall a b i j
          (MEMA : mem_tnum i a)
          (MEMB : mem_tnum j b),
@@ -1116,6 +1139,18 @@ Proof.
   rewrite <- Hsound.
   rewrite Z.land_spec, Z.lnot_spec by lia.
   reflexivity.
+Qed.
+
+Theorem tnum_mul_sound :
+  forall a b dst src,
+    gamma_val dst a ->
+    gamma_val src b ->
+    gamma_val (Val.mull dst src) (tnum_mul a b).
+Proof.
+  intros a b dst src Hdst Hsrc.
+  destruct dst; simpl in Hdst; try contradiction.
+  destruct src; simpl in Hsrc; try contradiction.
+  simpl. apply tnum_mul_mem_sound; assumption.
 Qed.
 
 Theorem tnum_binary_sound_ge_0 :
@@ -2639,7 +2674,7 @@ Proof.
   }
 Qed.
 
-Theorem tnum_neg_sound :
+Theorem tnum_neg_mem_sound :
   forall a i
          (MEMA : mem_tnum i a),
     mem_tnum (Int64.neg i) (tnum_neg a).
@@ -2647,9 +2682,19 @@ Proof.
   intros.
   unfold tnum_neg.
   rewrite <- Int64.sub_zero_r.
-  apply tnum_sub_sound.
+  apply tnum_sub_mem_sound.
   - unfold mem_tnum. reflexivity.
   - apply MEMA.
+Qed.
+
+Theorem tnum_neg_sound :
+  forall a dst,
+    gamma_val dst a ->
+    gamma_val (Val.negl dst) (tnum_neg a).
+Proof.
+  intros a dst Hdst.
+  destruct dst; simpl in Hdst; try contradiction.
+  simpl. apply tnum_neg_mem_sound. exact Hdst.
 Qed.
 
 Lemma tnum_unknown_gamma :
