@@ -993,6 +993,275 @@ Proof.
   auto.
 Qed.
 
+(** Bit-level view of [mem_tnum].  It is the common proof interface
+    for bitwise operations and shifts. *)
+Lemma mem_tnum_bit :
+  forall i a bit,
+    mem_tnum i a ->
+    0 <= bit < Int64.zwordsize ->
+    Int64.testbit i bit &&
+      negb (Int64.testbit (snd a) bit) =
+    Int64.testbit (fst a) bit.
+Proof.
+  intros i a bit Hmem Hbit.
+  apply (f_equal (fun x => Int64.testbit x bit)) in Hmem.
+  rewrite Int64.bits_and, Int64.bits_not in Hmem by lia.
+  exact Hmem.
+Qed.
+
+Theorem tnum_and_mem_sound :
+  forall a b i j,
+    mem_tnum i a ->
+    mem_tnum j b ->
+    mem_tnum (Int64.and i j) (tnum_and a b).
+Proof.
+  intros [av am] [bv bm] i j Ha Hb.
+  unfold mem_tnum, tnum_and in *; simpl in *.
+  apply Int64.same_bits_eq; intros bit Hbit.
+  repeat first
+    [ rewrite Int64.bits_and by lia
+    | rewrite Int64.bits_or by lia
+    | rewrite Int64.bits_not by lia ].
+  pose proof (mem_tnum_bit i (av, am) bit Ha Hbit) as Hai.
+  pose proof (mem_tnum_bit j (bv, bm) bit Hb Hbit) as Hbj.
+  simpl in Hai, Hbj.
+  destruct (Int64.testbit i bit), (Int64.testbit j bit),
+    (Int64.testbit av bit), (Int64.testbit am bit),
+    (Int64.testbit bv bit), (Int64.testbit bm bit);
+    simpl in Hai, Hbj |- *; congruence.
+Qed.
+
+Theorem tnum_or_mem_sound :
+  forall a b i j,
+    mem_tnum i a ->
+    mem_tnum j b ->
+    mem_tnum (Int64.or i j) (tnum_or a b).
+Proof.
+  intros [av am] [bv bm] i j Ha Hb.
+  unfold mem_tnum, tnum_or in *; simpl in *.
+  apply Int64.same_bits_eq; intros bit Hbit.
+  repeat first
+    [ rewrite Int64.bits_and by lia
+    | rewrite Int64.bits_or by lia
+    | rewrite Int64.bits_not by lia ].
+  pose proof (mem_tnum_bit i (av, am) bit Ha Hbit) as Hai.
+  pose proof (mem_tnum_bit j (bv, bm) bit Hb Hbit) as Hbj.
+  simpl in Hai, Hbj.
+  destruct (Int64.testbit i bit), (Int64.testbit j bit),
+    (Int64.testbit av bit), (Int64.testbit am bit),
+    (Int64.testbit bv bit), (Int64.testbit bm bit);
+    simpl in Hai, Hbj |- *; congruence.
+Qed.
+
+Theorem tnum_xor_mem_sound :
+  forall a b i j,
+    mem_tnum i a ->
+    mem_tnum j b ->
+    mem_tnum (Int64.xor i j) (tnum_xor a b).
+Proof.
+  intros [av am] [bv bm] i j Ha Hb.
+  unfold mem_tnum, tnum_xor in *; simpl in *.
+  apply Int64.same_bits_eq; intros bit Hbit.
+  repeat first
+    [ rewrite Int64.bits_and by lia
+    | rewrite Int64.bits_or by lia
+    | rewrite Int64.bits_xor by lia
+    | rewrite Int64.bits_not by lia ].
+  pose proof (mem_tnum_bit i (av, am) bit Ha Hbit) as Hai.
+  pose proof (mem_tnum_bit j (bv, bm) bit Hb Hbit) as Hbj.
+  simpl in Hai, Hbj.
+  destruct (Int64.testbit i bit), (Int64.testbit j bit),
+    (Int64.testbit av bit), (Int64.testbit am bit),
+    (Int64.testbit bv bit), (Int64.testbit bm bit);
+    simpl in Hai, Hbj |- *; congruence.
+Qed.
+
+Theorem tnum_lshift_mem_sound :
+  forall a i shift,
+    mem_tnum i a ->
+    mem_tnum (Int64.shl i shift) (tnum_lshift a shift).
+Proof.
+  intros [av am] i shift Hmem.
+  unfold mem_tnum, tnum_lshift in *; simpl in *.
+  apply Int64.same_bits_eq; intros bit Hbit.
+  rewrite Int64.bits_and, Int64.bits_not, !Int64.bits_shl by lia.
+  destruct (Coqlib.zlt bit (Int64.unsigned shift)) eqn:Hlt;
+    simpl; try reflexivity.
+  pose proof
+    (mem_tnum_bit i (av, am) (bit - Int64.unsigned shift)
+      Hmem) as Hmem_bit.
+  simpl in Hmem_bit. apply Hmem_bit.
+  pose proof (Int64.unsigned_range shift).
+  lia.
+Qed.
+
+Theorem tnum_rshift_mem_sound :
+  forall a i shift,
+    mem_tnum i a ->
+    mem_tnum (Int64.shru i shift) (tnum_rshift a shift).
+Proof.
+  intros [av am] i shift Hmem.
+  unfold mem_tnum, tnum_rshift in *; simpl in *.
+  apply Int64.same_bits_eq; intros bit Hbit.
+  rewrite Int64.bits_and, Int64.bits_not, !Int64.bits_shru by lia.
+  destruct
+    (Coqlib.zlt (bit + Int64.unsigned shift) Int64.zwordsize)
+    eqn:Hlt; simpl; try reflexivity.
+  pose proof
+    (mem_tnum_bit i (av, am) (bit + Int64.unsigned shift)
+      Hmem) as Hmem_bit.
+  simpl in Hmem_bit. apply Hmem_bit.
+  pose proof (Int64.unsigned_range shift).
+  lia.
+Qed.
+
+Theorem tnum_arshift_mem_sound :
+  forall a i shift,
+    mem_tnum i a ->
+    mem_tnum (Int64.shr i shift) (tnum_arshift a shift).
+Proof.
+  intros [av am] i shift Hmem.
+  unfold mem_tnum, tnum_arshift in *; simpl in *.
+  apply Int64.same_bits_eq; intros bit Hbit.
+  rewrite Int64.bits_and, Int64.bits_not, !Int64.bits_shr by lia.
+  pose proof
+    (mem_tnum_bit i (av, am)
+      (if Coqlib.zlt (bit + Int64.unsigned shift) Int64.zwordsize
+       then bit + Int64.unsigned shift
+       else Int64.zwordsize - 1)
+      Hmem) as Hmem_bit.
+  simpl in Hmem_bit. apply Hmem_bit.
+  destruct
+    (Coqlib.zlt (bit + Int64.unsigned shift) Int64.zwordsize)
+    eqn:Hlt.
+  - pose proof (Int64.unsigned_range shift).
+    lia.
+  - change Int64.zwordsize with 64. lia.
+Qed.
+
+(** Public, value-level interfaces for bitwise operations. *)
+Theorem tnum_and_sound :
+  forall a b dst src,
+    gamma_val dst a ->
+    gamma_val src b ->
+    gamma_val (Val.andl dst src) (tnum_and a b).
+Proof.
+  intros a b dst src Hdst Hsrc.
+  destruct dst; simpl in Hdst; try contradiction.
+  destruct src; simpl in Hsrc; try contradiction.
+  simpl. apply tnum_and_mem_sound; assumption.
+Qed.
+
+Theorem tnum_or_sound :
+  forall a b dst src,
+    gamma_val dst a ->
+    gamma_val src b ->
+    gamma_val (Val.orl dst src) (tnum_or a b).
+Proof.
+  intros a b dst src Hdst Hsrc.
+  destruct dst; simpl in Hdst; try contradiction.
+  destruct src; simpl in Hsrc; try contradiction.
+  simpl. apply tnum_or_mem_sound; assumption.
+Qed.
+
+Theorem tnum_xor_sound :
+  forall a b dst src,
+    gamma_val dst a ->
+    gamma_val src b ->
+    gamma_val (Val.xorl dst src) (tnum_xor a b).
+Proof.
+  intros a b dst src Hdst Hsrc.
+  destruct dst; simpl in Hdst; try contradiction.
+  destruct src; simpl in Hsrc; try contradiction.
+  simpl. apply tnum_xor_mem_sound; assumption.
+Qed.
+
+(** CompCert represents 64-bit shift counts as 32-bit integers at the
+    value level, while [tnum] stores the same count in an [int64]. *)
+Lemma Int64_shl'_shl :
+  forall x n,
+    Int64.shl' x n =
+    Int64.shl x (Int64.repr (Int.unsigned n)).
+Proof.
+  intros x n. unfold Int64.shl', Int64.shl.
+  rewrite Int64.unsigned_repr; auto.
+  pose proof (Int.unsigned_range n) as Hn.
+  change Int.modulus with 4294967296 in Hn.
+  change Int64.max_unsigned with 18446744073709551615.
+  lia.
+Qed.
+
+Lemma Int64_shru'_shru :
+  forall x n,
+    Int64.shru' x n =
+    Int64.shru x (Int64.repr (Int.unsigned n)).
+Proof.
+  intros x n. unfold Int64.shru', Int64.shru.
+  rewrite Int64.unsigned_repr; auto.
+  pose proof (Int.unsigned_range n) as Hn.
+  change Int.modulus with 4294967296 in Hn.
+  change Int64.max_unsigned with 18446744073709551615.
+  lia.
+Qed.
+
+Lemma Int64_shr'_shr :
+  forall x n,
+    Int64.shr' x n =
+    Int64.shr x (Int64.repr (Int.unsigned n)).
+Proof.
+  intros x n. unfold Int64.shr', Int64.shr.
+  rewrite Int64.unsigned_repr; auto.
+  pose proof (Int.unsigned_range n) as Hn.
+  change Int.modulus with 4294967296 in Hn.
+  change Int64.max_unsigned with 18446744073709551615.
+  lia.
+Qed.
+
+Theorem tnum_lshift_sound :
+  forall a dst count,
+    gamma_val dst a ->
+    Int.ltu count Int64.iwordsize' = true ->
+    gamma_val
+      (Val.shll dst (Vint count))
+      (tnum_lshift a (Int64.repr (Int.unsigned count))).
+Proof.
+  intros a dst count Hdst Hcount.
+  destruct dst; simpl in Hdst; try contradiction.
+  simpl. rewrite Hcount. simpl.
+  rewrite Int64_shl'_shl.
+  apply tnum_lshift_mem_sound. exact Hdst.
+Qed.
+
+Theorem tnum_rshift_sound :
+  forall a dst count,
+    gamma_val dst a ->
+    Int.ltu count Int64.iwordsize' = true ->
+    gamma_val
+      (Val.shrlu dst (Vint count))
+      (tnum_rshift a (Int64.repr (Int.unsigned count))).
+Proof.
+  intros a dst count Hdst Hcount.
+  destruct dst; simpl in Hdst; try contradiction.
+  simpl. rewrite Hcount. simpl.
+  rewrite Int64_shru'_shru.
+  apply tnum_rshift_mem_sound. exact Hdst.
+Qed.
+
+Theorem tnum_arshift_sound :
+  forall a dst count,
+    gamma_val dst a ->
+    Int.ltu count Int64.iwordsize' = true ->
+    gamma_val
+      (Val.shrl dst (Vint count))
+      (tnum_arshift a (Int64.repr (Int.unsigned count))).
+Proof.
+  intros a dst count Hdst Hcount.
+  destruct dst; simpl in Hdst; try contradiction.
+  simpl. rewrite Hcount. simpl.
+  rewrite Int64_shr'_shr.
+  apply tnum_arshift_mem_sound. exact Hdst.
+Qed.
+
 Theorem tnum_add_mem_sound :
   forall a b i j,
     mem_tnum i a ->
