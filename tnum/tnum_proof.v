@@ -1463,41 +1463,117 @@ Proof.
   auto.
 Qed.
 
-Theorem tnum_udiv_sound :
-  forall a b i j
-         (GEA : tnum_ge_inv (to_tnumZ a))
-         (GEB : tnum_ge_inv (to_tnumZ b))
-         (MEMA : mem_tnum i a)
-         (MEMB : mem_tnum j b),
-    mem_tnum (Int64.divu i j) (tnum_udiv a b).
+Lemma to_tnumZ_ge :
+  forall a, tnum_ge_inv (to_tnumZ a).
 Proof.
-  intros.
-  apply tnum_binary_sound_ge_0 with (tnum_fz := tnumZ.tnum_udiv) (fz:= Z.div); auto.
+  intros [av am].
+  unfold tnum_ge_inv, to_tnumZ; simpl.
+  split; pose proof (Int64.unsigned_range av);
+    pose proof (Int64.unsigned_range am); lia.
+Qed.
+
+Lemma Int64_divu_zero :
+  forall i, Int64.divu i Int64.zero = Int64.zero.
+Proof.
+  intros i. unfold Int64.divu.
+  rewrite Int64.unsigned_zero, Zdiv_0_r.
+  reflexivity.
+Qed.
+
+Lemma Int64_modu_zero :
+  forall i, Int64.modu i Int64.zero = i.
+Proof.
+  intros i. unfold Int64.modu.
+  rewrite Int64.unsigned_zero, Zmod_0_r.
+  apply Int64.repr_unsigned.
+Qed.
+
+(** CompCert leaves division and remainder by zero at the integer
+    level total as well.  These equations connect that representation
+    to the explicit eBPF cases in [eval_div_u64] and [eval_mod_u64]. *)
+Lemma eval_div_u64_vlong :
+  forall i j,
+    eval_div_u64 (Vlong i) (Vlong j) =
+    Vlong (Int64.divu i j).
+Proof.
+  intros i j.
+  unfold eval_div_u64, Val.divlu.
+  destruct (Int64.eq j Int64.zero) eqn:Hzero.
+  - apply Int64.same_if_eq in Hzero. subst j.
+    destruct (Val.eq (Vlong Int64.zero) (Vlong Int64.zero))
+      as [Heq | Hneq].
+    + rewrite Int64_divu_zero. reflexivity.
+    + exfalso. apply Hneq. reflexivity.
+  - reflexivity.
+Qed.
+
+Lemma eval_mod_u64_vlong :
+  forall i j,
+    eval_mod_u64 (Vlong i) (Vlong j) =
+    Vlong (Int64.modu i j).
+Proof.
+  intros i j.
+  unfold eval_mod_u64, Val.modlu.
+  destruct (Int64.eq j Int64.zero) eqn:Hzero.
+  - apply Int64.same_if_eq in Hzero. subst j.
+    destruct (Val.eq (Vlong Int64.zero) (Vlong Int64.zero))
+      as [Heq | Hneq].
+    + rewrite Int64_modu_zero. reflexivity.
+    + exfalso. apply Hneq. reflexivity.
+  - reflexivity.
+Qed.
+
+(** Soundness for the total eBPF unsigned division semantics:
+    division by zero returns zero. *)
+Theorem tnum_udiv_sound :
+  forall a b dst src,
+    gamma_val dst a ->
+    gamma_val src b ->
+    gamma_val (eval_div_u64 dst src) (tnum_udiv a b).
+Proof.
+  intros a b dst src Hdst Hsrc.
+  destruct dst as [ | | i | | | ]; simpl in Hdst; try contradiction.
+  destruct src as [ | | j | | | ]; simpl in Hsrc; try contradiction.
+  rewrite eval_div_u64_vlong. simpl.
+  eapply tnum_binary_sound_ge_0
+    with (tnum_fz := tnumZ.tnum_udiv) (fz := Z.div).
   - intros.
     apply tnumZ_udiv_sound.tnum_udiv_sound; auto.
   - intros.
-    apply testbit_divu ; auto.
+    apply testbit_divu; auto.
+  - apply to_tnumZ_ge.
+  - apply to_tnumZ_ge.
+  - exact Hdst.
+  - exact Hsrc.
   - apply tnum_udiv_eq; auto.
-    apply (mem_tnum_range _ _ MEMA).
+    apply (mem_tnum_range _ _ Hdst).
 Qed.
 
+(** Soundness for the total eBPF unsigned remainder semantics:
+    remainder by zero leaves the dividend unchanged. *)
 Theorem tnum_umod_sound :
-  forall a b i j
-         (GEA : tnum_ge_inv (to_tnumZ a))
-         (GEB : tnum_ge_inv (to_tnumZ b))
-         (MEMA : mem_tnum i a)
-         (MEMB : mem_tnum j b),
-         mem_tnum (Int64.modu i j) (tnum_umod a b).
+  forall a b dst src,
+    gamma_val dst a ->
+    gamma_val src b ->
+    gamma_val (eval_mod_u64 dst src) (tnum_umod a b).
 Proof.
-  intros.
-  apply tnum_binary_sound_ge_0 with (tnum_fz := tnumZ.tnum_umod) (fz:= Z.modulo); auto.
+  intros a b dst src Hdst Hsrc.
+  destruct dst as [ | | i | | | ]; simpl in Hdst; try contradiction.
+  destruct src as [ | | j | | | ]; simpl in Hsrc; try contradiction.
+  rewrite eval_mod_u64_vlong. simpl.
+  eapply tnum_binary_sound_ge_0
+    with (tnum_fz := tnumZ.tnum_umod) (fz := Z.modulo).
   - intros.
     apply tnumZ_umod_sound.tnum_umod_sound; auto.
   - intros.
-    apply testbit_modu ; auto.
+    apply testbit_modu; auto.
+  - apply to_tnumZ_ge.
+  - apply to_tnumZ_ge.
+  - exact Hdst.
+  - exact Hsrc.
   - apply tnum_umod_eq; auto.
-    apply (mem_tnum_range _ _ MEMA).
-    apply (mem_tnum_range _ _ MEMB).
+    apply (mem_tnum_range _ _ Hdst).
+    apply (mem_tnum_range _ _ Hsrc).
 Qed.
 
 Lemma testbit_sign_pos_smod:
@@ -3579,9 +3655,10 @@ Proof.
     - lia. 
   }
   rewrite H_div.
+  change
+    (gamma_val (Vlong (Int64.divu i j)) (tnum_udiv a_pos b_pos)).
+  rewrite <- eval_div_u64_vlong.
   apply tnum_udiv_sound.
-  - unfold tnum_ge_inv, to_tnumZ. split; simpl; apply Int64_unsigned_ge_0.
-  - unfold tnum_ge_inv, to_tnumZ. split; simpl; apply Int64_unsigned_ge_0.
   - eapply tnum_get_positive_sound; eauto.
   - eapply tnum_get_positive_sound; eauto.
 Qed.
