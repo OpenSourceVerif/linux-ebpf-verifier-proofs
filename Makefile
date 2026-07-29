@@ -28,7 +28,8 @@ clean:
 	@echo "Cleaning tnum build artifacts..."
 	@if [ -f CoqMakefile ]; then $(MAKE) -f CoqMakefile clean; fi
 	$(MAKE) -C $(SEMANTICS_DIR) clean
-	@rm -f _CoqProject CoqMakefile CoqMakefile.conf
+	@rm -f _CoqProject CoqMakefile CoqMakefile.conf .lia.cache
+	@find . -name "*.aux" -delete
 
 tnumcode:
 	coqwc $(TNUMFILES)
